@@ -1,0 +1,24 @@
+package main
+
+import (
+	"fmt"
+
+	"mseep/internal/app"
+)
+
+func runTUI() error {
+	return fmt.Errorf("TUI coming soon. Use CLI: enable/disable/toggle/status")
+}
+
+func cmdEnableDisableToggle(mode, q, client string, yes bool) error {
+	a, err := app.LoadApp()
+	if err != nil { return err }
+	d, err := a.Toggle(mode, q, client, yes)
+	if err != nil { return err }
+	if d != "" { fmt.Println(d) }
+	return nil
+}
+
+func runStatus(client string, json bool) error  { fmt.Println("status coming soon"); return nil }
+func runHealth(client, server string, fix bool) error { fmt.Println("health coming soon"); return nil }
+func runApply(client, profile string) error     { fmt.Println("apply coming soon"); return nil }

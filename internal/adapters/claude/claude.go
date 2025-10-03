@@ -2,12 +2,12 @@ package claude
 
 import (
 	"encoding/json"
-	"fmt"
 	"os"
 	"path/filepath"
 	"time"
 
 	"mseep/internal/config"
+	"mseep/internal/diff"
 )
 
 // Minimal Claude Desktop config shape (subset)
@@ -102,16 +102,11 @@ func (a Adapter) Apply(canon *config.Canonical) (string, error) {
 	}
 
 	after, _ := json.MarshalIndent(newCfg, "", "  ")
-	diff := unifiedDiff(string(before), string(after))
+	diffStr := diff.GenerateColorDiff(string(before), string(after))
 
 	// Write
-	if _, err := a.Backup(); err != nil { return diff, err }
-	p, err := a.Path(); if err != nil { return diff, err }
-	if err := os.WriteFile(p, after, 0o644); err != nil { return diff, err }
-	return diff, nil
-}
-
-// naive diff for MVP
-func unifiedDiff(a, b string) string {
-	return fmt.Sprintf("--- before\n+++ after\n%s\n%s", a, b)
+	if _, err := a.Backup(); err != nil { return diffStr, err }
+	p, err := a.Path(); if err != nil { return diffStr, err }
+	if err := os.WriteFile(p, after, 0o644); err != nil { return diffStr, err }
+	return diffStr, nil
 }

@@ -32,4 +32,10 @@ func runStatus(client string, json bool) error {
 	return nil
 }
 func runHealth(client, server string, fix bool) error { fmt.Println("health coming soon"); return nil }
-func runApply(client, profile string) error     { fmt.Println("apply coming soon"); return nil }
+func runApply(client, profile string) error {
+	a, err := app.LoadApp()
+	if err != nil {
+		return err
+	}
+	return a.Apply(client, profile, false)
+}

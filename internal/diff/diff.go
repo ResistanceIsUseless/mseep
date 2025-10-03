@@ -16,10 +16,6 @@ func GenerateUnifiedDiff(before, after, beforeName, afterName string) string {
 	dmp := diffmatchpatch.New()
 	diffs := dmp.DiffMain(before, after, false)
 	
-	// Convert to line-based diff for better readability
-	linesBefore := strings.Split(before, "\n")
-	linesAfter := strings.Split(after, "\n")
-	
 	// Generate patch
 	patches := dmp.PatchMake(before, diffs)
 	if len(patches) == 0 {

@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"mseep/internal/adapters/claude"
+	"mseep/internal/style"
 )
 
 type StatusReport struct {
@@ -130,22 +131,29 @@ func (a *App) Status(client string, jsonOutput bool) (string, error) {
 		return string(output), nil
 	}
 
-	// Human-readable format
+	// Human-readable format with beautiful styling
 	var output strings.Builder
+	
+	output.WriteString(style.Title("mseep Status Report"))
+	output.WriteString("\n")
 
-	for _, clientStatus := range report.Clients {
-		output.WriteString(fmt.Sprintf("Client: %s\n", clientStatus.Name))
+	for i, clientStatus := range report.Clients {
+		if i > 0 {
+			output.WriteString("\n")
+		}
+		
+		output.WriteString(style.Header(fmt.Sprintf("Client: %s", clientStatus.Name)))
 		
 		if !clientStatus.Installed {
-			output.WriteString("  Status: Not installed\n\n")
+			output.WriteString(style.Warning("Not installed") + "\n")
 			continue
 		}
 
-		output.WriteString(fmt.Sprintf("  Status: Installed\n"))
-		output.WriteString(fmt.Sprintf("  Config: %s\n\n", clientStatus.Path))
+		output.WriteString(style.Success("Installed") + "\n")
+		output.WriteString(style.Muted("Config: ") + style.Code(clientStatus.Path) + "\n")
 
 		if len(clientStatus.Servers) == 0 {
-			output.WriteString("  No servers configured\n\n")
+			output.WriteString(style.Muted("No servers configured") + "\n")
 			continue
 		}
 
@@ -161,46 +169,70 @@ func (a *App) Status(client string, jsonOutput bool) (string, error) {
 			}
 		}
 
-		// Display synced servers
-		if len(synced) > 0 {
-			output.WriteString("  ✓ Enabled (synced):\n")
-			for _, srv := range synced {
-				tags := ""
-				if len(srv.Tags) > 0 {
-					tags = fmt.Sprintf(" [%s]", strings.Join(srv.Tags, ", "))
+		// Create status table
+		var tableRows [][]string
+		var headers = []string{"Server", "Canonical", "Client", "Status", "Tags"}
+		
+		for _, srv := range clientStatus.Servers {
+			canonStatus := "✗ Disabled"
+			if srv.EnabledCanon {
+				canonStatus = "✓ Enabled"
+			}
+			
+			clientStatus := "✗ Disabled"
+			if srv.EnabledClient {
+				clientStatus = "✓ Enabled"
+			}
+			
+			syncStatus := "✗ Out of sync"
+			if srv.InSync {
+				if srv.EnabledCanon {
+					syncStatus = "✓ Synced"
+				} else {
+					syncStatus = "✓ Synced (disabled)"
 				}
-				output.WriteString(fmt.Sprintf("    - %s%s\n", srv.Name, tags))
 			}
-			output.WriteString("\n")
-		}
-
-		// Display servers only in canonical
-		if len(canonOnly) > 0 {
-			output.WriteString("  ⚠ Enabled in canonical only (run 'mseep apply' to sync):\n")
-			for _, srv := range canonOnly {
-				tags := ""
-				if len(srv.Tags) > 0 {
-					tags = fmt.Sprintf(" [%s]", strings.Join(srv.Tags, ", "))
-				}
-				output.WriteString(fmt.Sprintf("    - %s%s\n", srv.Name, tags))
+			
+			tags := strings.Join(srv.Tags, ", ")
+			if tags == "" {
+				tags = style.Muted("none")
 			}
-			output.WriteString("\n")
+			
+			tableRows = append(tableRows, []string{
+				srv.Name,
+				canonStatus,
+				clientStatus,
+				syncStatus,
+				tags,
+			})
 		}
-
-		// Display servers only in client
-		if len(clientOnly) > 0 {
-			output.WriteString("  ⚠ Enabled in client only (not managed by mseep):\n")
-			for _, srv := range clientOnly {
-				output.WriteString(fmt.Sprintf("    - %s\n", srv.Name))
-			}
-			output.WriteString("\n")
-		}
-
+		
+		output.WriteString("\n")
+		output.WriteString(style.StatusTable(tableRows, headers))
+		
 		// Summary
 		total := len(clientStatus.Servers)
 		syncedCount := len(synced)
-		output.WriteString(fmt.Sprintf("  Summary: %d servers total, %d synced, %d out of sync\n\n", 
-			total, syncedCount, total-syncedCount))
+		outOfSyncCount := total - syncedCount
+		
+		var summaryParts []string
+		summaryParts = append(summaryParts, fmt.Sprintf("%d total", total))
+		if syncedCount > 0 {
+			summaryParts = append(summaryParts, style.Success(fmt.Sprintf("%d synced", syncedCount)))
+		}
+		if outOfSyncCount > 0 {
+			summaryParts = append(summaryParts, style.Warning(fmt.Sprintf("%d out of sync", outOfSyncCount)))
+		}
+		
+		output.WriteString("\n" + style.Muted("Summary: ") + strings.Join(summaryParts, ", ") + "\n")
+		
+		// Show action hints
+		if len(canonOnly) > 0 {
+			output.WriteString(style.Muted("💡 Run 'mseep apply' to sync canonical config to client") + "\n")
+		}
+		if len(clientOnly) > 0 {
+			output.WriteString(style.Muted("💡 Unmanaged servers found - consider adding to canonical config") + "\n")
+		}
 	}
 
 	return output.String(), nil

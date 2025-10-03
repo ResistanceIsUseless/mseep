@@ -10,6 +10,7 @@ import (
 	"mseep/internal/adapters/claude"
 	"mseep/internal/config"
 	"mseep/internal/diff"
+	"mseep/internal/style"
 )
 
 // Apply applies the canonical configuration to the specified client
@@ -38,8 +39,12 @@ func (a *App) Apply(client, profile string, autoApprove bool) error {
 	}
 
 	// Apply to each client
-	for _, c := range clients {
-		fmt.Printf("\nApplying configuration to %s...\n", c)
+	for i, c := range clients {
+		if len(clients) > 1 {
+			fmt.Print(style.ProgressStep(i+1, len(clients), fmt.Sprintf("Applying configuration to %s", c)) + "\n")
+		} else {
+			fmt.Print(style.Header(fmt.Sprintf("Applying configuration to %s", c)) + "\n")
+		}
 		
 		switch c {
 		case "claude":
@@ -47,9 +52,9 @@ func (a *App) Apply(client, profile string, autoApprove bool) error {
 				return fmt.Errorf("failed to apply to claude: %w", err)
 			}
 		case "cursor":
-			fmt.Println("Cursor support not yet implemented")
+			fmt.Print(style.Warning("Cursor support not yet implemented") + "\n")
 		case "cline":
-			fmt.Println("Cline support not yet implemented")
+			fmt.Print(style.Warning("Cline support not yet implemented") + "\n")
 		default:
 			return fmt.Errorf("unknown client: %s", c)
 		}
@@ -89,7 +94,7 @@ func (a *App) applyProfile(profileName string) error {
 		return fmt.Errorf("failed to save canonical config: %w", err)
 	}
 
-	fmt.Printf("Applied profile %q\n", profileName)
+	fmt.Print(style.Success(fmt.Sprintf("Applied profile %q", profileName)) + "\n")
 	return nil
 }
 
@@ -143,17 +148,14 @@ func (a *App) applyToClaude(autoApprove bool) error {
 	afterJSON, _ := json.MarshalIndent(newConfig, "", "  ")
 	
 	if string(beforeJSON) == string(afterJSON) {
-		fmt.Println("No changes needed - configuration is already in sync")
+		fmt.Print(style.Success("No changes needed - configuration is already in sync") + "\n")
 		return nil
 	}
 
 	// Show diff preview
-	fmt.Println("\n" + strings.Repeat("-", 60))
-	fmt.Println("Configuration changes preview:")
-	fmt.Println(strings.Repeat("-", 60))
+	fmt.Print("\n" + style.Header("Configuration Changes Preview") + "\n")
 	diffStr := diff.GenerateColorDiff(string(beforeJSON), string(afterJSON))
-	fmt.Println(diffStr)
-	fmt.Println(strings.Repeat("-", 60))
+	fmt.Print(style.DiffBox(diffStr) + "\n")
 
 	// Ask for confirmation unless auto-approve is set
 	if !autoApprove {
@@ -166,7 +168,7 @@ func (a *App) applyToClaude(autoApprove bool) error {
 		
 		response = strings.ToLower(strings.TrimSpace(response))
 		if response != "y" && response != "yes" {
-			fmt.Println("Changes not applied")
+			fmt.Print(style.Warning("Changes not applied") + "\n")
 			return nil
 		}
 	}
@@ -177,7 +179,7 @@ func (a *App) applyToClaude(autoApprove bool) error {
 		return fmt.Errorf("failed to create backup: %w", err)
 	}
 	if backupPath != "" {
-		fmt.Printf("Created backup: %s\n", backupPath)
+		fmt.Print(style.Muted("Created backup: ") + style.Code(backupPath) + "\n")
 	}
 
 	// Write the new configuration
@@ -190,7 +192,7 @@ func (a *App) applyToClaude(autoApprove bool) error {
 		return fmt.Errorf("failed to write config: %w", err)
 	}
 
-	fmt.Printf("✓ Configuration applied successfully to Claude Desktop\n")
+	fmt.Print(style.Success("Configuration applied successfully to Claude Desktop") + "\n")
 	return nil
 }
 

@@ -19,6 +19,17 @@ func cmdEnableDisableToggle(mode, q, client string, yes bool) error {
 	return nil
 }
 
-func runStatus(client string, json bool) error  { fmt.Println("status coming soon"); return nil }
+func runStatus(client string, json bool) error {
+	a, err := app.LoadApp()
+	if err != nil {
+		return err
+	}
+	output, err := a.Status(client, json)
+	if err != nil {
+		return err
+	}
+	fmt.Print(output)
+	return nil
+}
 func runHealth(client, server string, fix bool) error { fmt.Println("health coming soon"); return nil }
 func runApply(client, profile string) error     { fmt.Println("apply coming soon"); return nil }

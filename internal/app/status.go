@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"mseep/internal/adapters/claude"
+	"mseep/internal/adapters/cursor"
 	"mseep/internal/style"
 )
 
@@ -33,7 +34,7 @@ type ServerStatus struct {
 func (a *App) Status(client string, jsonOutput bool) (string, error) {
 	report := StatusReport{Clients: []ClientStatus{}}
 
-	// Check Claude if no specific client or client is "claude"
+	// Check Claude if no specific client or client is "claude" 
 	if client == "" || client == "claude" {
 		claudeAdapter := claude.Adapter{}
 		claudeStatus := ClientStatus{
@@ -105,13 +106,76 @@ func (a *App) Status(client string, jsonOutput bool) (string, error) {
 		report.Clients = append(report.Clients, claudeStatus)
 	}
 
-	// TODO: Add Cursor and Cline adapters when implemented
-	if client == "cursor" {
-		report.Clients = append(report.Clients, ClientStatus{
-			Name:      "cursor",
-			Installed: false,
-			Servers:   []ServerStatus{},
-		})
+	// Check Cursor if no specific client or client is "cursor"
+	if client == "" || client == "cursor" {
+		cursorAdapter := cursor.Adapter{}
+		cursorStatus := ClientStatus{
+			Name:    "cursor",
+			Servers: []ServerStatus{},
+		}
+
+		// Check if Cursor is installed
+		installed, err := cursorAdapter.Detect()
+		if err != nil {
+			return "", fmt.Errorf("error detecting cursor: %w", err)
+		}
+		cursorStatus.Installed = installed
+
+		if installed {
+			path, _ := cursorAdapter.Path()
+			cursorStatus.Path = path
+
+			// Load Cursor config
+			cursorConfig, err := cursorAdapter.Load()
+			if err != nil {
+				return "", fmt.Errorf("error loading cursor config: %w", err)
+			}
+
+			// Build server status list
+			serverMap := make(map[string]*ServerStatus)
+
+			// First, add all canonical servers
+			for _, srv := range a.Canon.Servers {
+				serverMap[srv.Name] = &ServerStatus{
+					Name:          srv.Name,
+					EnabledCanon:  srv.Enabled,
+					EnabledClient: false,
+					InSync:        false,
+					Tags:          srv.Tags,
+					Transport:     srv.Transport,
+				}
+			}
+
+			// Then check which ones are in Cursor config
+			for name := range cursorConfig.MCPServers {
+				if status, exists := serverMap[name]; exists {
+					status.EnabledClient = true
+					status.InSync = (status.EnabledCanon == status.EnabledClient)
+				} else {
+					// Server in Cursor but not in canonical
+					serverMap[name] = &ServerStatus{
+						Name:          name,
+						EnabledCanon:  false,
+						EnabledClient: true,
+						InSync:        false,
+					}
+				}
+			}
+
+			// Convert map to sorted slice
+			for _, status := range serverMap {
+				// Mark as in sync if both are enabled or both are disabled
+				status.InSync = (status.EnabledCanon == status.EnabledClient)
+				cursorStatus.Servers = append(cursorStatus.Servers, *status)
+			}
+			
+			// Sort servers by name
+			sort.Slice(cursorStatus.Servers, func(i, j int) bool {
+				return cursorStatus.Servers[i].Name < cursorStatus.Servers[j].Name
+			})
+		}
+
+		report.Clients = append(report.Clients, cursorStatus)
 	}
 
 	if client == "cline" {

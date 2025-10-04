@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"mseep/internal/adapters/claude"
+	"mseep/internal/adapters/cursor"
 	"mseep/internal/config"
 	"mseep/internal/diff"
 	"mseep/internal/style"
@@ -29,7 +30,10 @@ func (a *App) Apply(client, profile string, autoApprove bool) error {
 		if ca := (claude.Adapter{}); detectClient(ca) {
 			clients = append(clients, "claude")
 		}
-		// TODO: Add Cursor and Cline when implemented
+		if ca := (cursor.Adapter{}); detectClient(ca) {
+			clients = append(clients, "cursor")
+		}
+		// TODO: Add Cline when implemented
 	} else {
 		clients = append(clients, client)
 	}
@@ -52,7 +56,9 @@ func (a *App) Apply(client, profile string, autoApprove bool) error {
 				return fmt.Errorf("failed to apply to claude: %w", err)
 			}
 		case "cursor":
-			fmt.Print(style.Warning("Cursor support not yet implemented") + "\n")
+			if err := a.applytoCursor(autoApprove); err != nil {
+				return fmt.Errorf("failed to apply to cursor: %w", err)
+			}
 		case "cline":
 			fmt.Print(style.Warning("Cline support not yet implemented") + "\n")
 		default:
@@ -193,6 +199,126 @@ func (a *App) applyToClaude(autoApprove bool) error {
 	}
 
 	fmt.Print(style.Success("Configuration applied successfully to Claude Desktop") + "\n")
+	return nil
+}
+
+func (a *App) applytoCursor(autoApprove bool) error {
+	ca := cursor.Adapter{}
+	
+	// Check if Cursor is installed
+	if !detectClient(ca) {
+		return fmt.Errorf("Cursor not detected")
+	}
+
+	// Load current Cursor config
+	currentConfig, err := ca.Load()
+	if err != nil {
+		return fmt.Errorf("failed to load Cursor config: %w", err)
+	}
+
+	// Build the new configuration
+	newConfig := &cursor.CursorConfig{
+		MCPServers: make(map[string]cursor.CursorServer),
+		Other:      make(map[string]interface{}),
+	}
+
+	// Preserve other settings
+	for key, value := range currentConfig.Other {
+		newConfig.Other[key] = value
+	}
+
+	// First, preserve any unmanaged servers (those not in canonical)
+	for name, srv := range currentConfig.MCPServers {
+		found := false
+		for _, canonSrv := range a.Canon.Servers {
+			if canonSrv.Name == name {
+				found = true
+				break
+			}
+		}
+		if !found {
+			// This is an unmanaged server, preserve it
+			newConfig.MCPServers[name] = srv
+		}
+	}
+
+	// Then add enabled servers from canonical
+	for _, srv := range a.Canon.Servers {
+		if srv.Enabled {
+			newConfig.MCPServers[srv.Name] = cursor.CursorServer{
+				Command: srv.Command,
+				Args:    srv.Args,
+				Env:     srv.Env,
+			}
+		}
+	}
+
+	// Generate full config maps for diff
+	beforeMap := make(map[string]interface{})
+	for key, value := range currentConfig.Other {
+		beforeMap[key] = value
+	}
+	if len(currentConfig.MCPServers) > 0 {
+		beforeMap["mcp.servers"] = currentConfig.MCPServers
+	}
+
+	afterMap := make(map[string]interface{})
+	for key, value := range newConfig.Other {
+		afterMap[key] = value
+	}
+	if len(newConfig.MCPServers) > 0 {
+		afterMap["mcp.servers"] = newConfig.MCPServers
+	}
+
+	beforeJSON, _ := json.MarshalIndent(beforeMap, "", "  ")
+	afterJSON, _ := json.MarshalIndent(afterMap, "", "  ")
+	
+	if string(beforeJSON) == string(afterJSON) {
+		fmt.Print(style.Success("No changes needed - configuration is already in sync") + "\n")
+		return nil
+	}
+
+	// Show diff preview
+	fmt.Print("\n" + style.Header("Configuration Changes Preview") + "\n")
+	diffStr := diff.GenerateColorDiff(string(beforeJSON), string(afterJSON))
+	fmt.Print(style.DiffBox(diffStr) + "\n")
+
+	// Ask for confirmation unless auto-approve is set
+	if !autoApprove {
+		fmt.Print("\nApply these changes? [y/N]: ")
+		reader := bufio.NewReader(os.Stdin)
+		response, err := reader.ReadString('\n')
+		if err != nil {
+			return fmt.Errorf("failed to read response: %w", err)
+		}
+		
+		response = strings.ToLower(strings.TrimSpace(response))
+		if response != "y" && response != "yes" {
+			fmt.Print(style.Warning("Changes not applied") + "\n")
+			return nil
+		}
+	}
+
+	// Create backup
+	backupPath, err := ca.Backup()
+	if err != nil {
+		return fmt.Errorf("failed to create backup: %w", err)
+	}
+	if backupPath != "" {
+		fmt.Print(style.Muted("Created backup: ") + style.Code(backupPath) + "\n")
+	}
+
+	// Write the new configuration
+	configPath, err := ca.Path()
+	if err != nil {
+		return fmt.Errorf("failed to get config path: %w", err)
+	}
+	
+	if err := os.WriteFile(configPath, afterJSON, 0o644); err != nil {
+		return fmt.Errorf("failed to write config: %w", err)
+	}
+
+	fmt.Print(style.Success("Configuration applied successfully to Cursor") + "\n")
 	return nil
 }
 

@@ -4,6 +4,7 @@ import (
 	"fmt"
 
 	"mseep/internal/adapters/claude"
+	"mseep/internal/adapters/cursor"
 	"mseep/internal/config"
 	"mseep/internal/fuzzy"
 )
@@ -42,14 +43,40 @@ func (a *App) Toggle(mode, query, client string, assumeYes bool) (string, error)
 	}
 	if err := config.Save("", a.Canon); err != nil { return "", err }
 
-	// apply to Claude if present or if client==claude/empty
+	// apply to detected clients or specific client
+	var diff string
+	var lastErr error
+	
 	aCl := claude.Adapter{}
+	aCu := cursor.Adapter{}
+	
 	if client == "" || client == "claude" {
 		ok, _ := aCl.Detect()
 		if ok {
 			d, err := aCl.Apply(a.Canon)
-			return d, err
+			if err != nil {
+				lastErr = err
+			} else {
+				diff = d
+			}
 		}
 	}
-	return "", nil
+	
+	if client == "" || client == "cursor" {
+		ok, _ := aCu.Detect()
+		if ok {
+			d, err := aCu.Apply(a.Canon)
+			if err != nil {
+				lastErr = err
+			} else {
+				if diff != "" {
+					diff += "\n\n" + d
+				} else {
+					diff = d
+				}
+			}
+		}
+	}
+	
+	return diff, lastErr
 }

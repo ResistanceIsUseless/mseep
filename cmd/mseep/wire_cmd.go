@@ -3,11 +3,21 @@ package main
 import (
 	"fmt"
 
+	tea "github.com/charmbracelet/bubbletea"
+	
 	"mseep/internal/app"
+	"mseep/internal/tui"
 )
 
 func runTUI() error {
-	return fmt.Errorf("TUI coming soon. Use CLI: enable/disable/toggle/status")
+	model, err := tui.New()
+	if err != nil {
+		return err
+	}
+	
+	p := tea.NewProgram(model, tea.WithAltScreen())
+	_, err = p.Run()
+	return err
 }
 
 func cmdEnableDisableToggle(mode, q, client string, yes bool) error {

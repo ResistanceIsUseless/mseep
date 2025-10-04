@@ -128,35 +128,121 @@ var keys = keyMap{
 
 // Styles
 var (
+	// Color palette
+	primaryColor   = lipgloss.Color("#00D9FF")
+	accentColor    = lipgloss.Color("#FF79C6")
+	successColor   = lipgloss.Color("#50FA7B")
+	warningColor   = lipgloss.Color("#FFB86C")
+	errorColor     = lipgloss.Color("#FF5555")
+	bgColor        = lipgloss.Color("#282A36")
+	bgLightColor   = lipgloss.Color("#44475A")
+	fgColor        = lipgloss.Color("#F8F8F2")
+	mutedColor     = lipgloss.Color("#6272A4")
+	borderColor    = lipgloss.Color("#6272A4")
+
+	// App title
+	appTitleStyle = lipgloss.NewStyle().
+		Bold(true).
+		Foreground(primaryColor).
+		Background(bgColor).
+		Padding(0, 2).
+		MarginBottom(1)
+
 	titleStyle = lipgloss.NewStyle().
 		Bold(true).
-		Foreground(lipgloss.Color("#00D9FF")).
+		Foreground(primaryColor).
 		Padding(1, 0)
 	
-	tabStyle = lipgloss.NewStyle().
-		Padding(0, 1)
-	
-	activeTabStyle = tabStyle.Copy().
-		Bold(true).
-		Foreground(lipgloss.Color("#00D9FF")).
+	// Tab styles with better separation
+	tabBarStyle = lipgloss.NewStyle().
+		Background(bgColor).
+		BorderStyle(lipgloss.NormalBorder()).
 		BorderBottom(true).
-		BorderStyle(lipgloss.ThickBorder())
+		BorderForeground(borderColor).
+		PaddingTop(0).
+		PaddingBottom(0)
+	
+	tabStyle = lipgloss.NewStyle().
+		Foreground(mutedColor).
+		Background(bgColor).
+		Padding(0, 2).
+		MarginRight(1)
+	
+	activeTabStyle = lipgloss.NewStyle().
+		Bold(true).
+		Foreground(fgColor).
+		Background(bgLightColor).
+		BorderStyle(lipgloss.RoundedBorder()).
+		BorderForeground(primaryColor).
+		Padding(0, 2).
+		MarginRight(1)
+
+	tabSeparatorStyle = lipgloss.NewStyle().
+		Foreground(borderColor).
+		Padding(0, 0)
+	
+	// Content area
+	contentStyle = lipgloss.NewStyle().
+		Padding(1, 2).
+		Background(lipgloss.Color("#1E1F29"))
 	
 	statusBarStyle = lipgloss.NewStyle().
-		Foreground(lipgloss.AdaptiveColor{Light: "#343433", Dark: "#C1C6B2"}).
-		Background(lipgloss.AdaptiveColor{Light: "#D9DCCF", Dark: "#353533"})
+		Foreground(fgColor).
+		Background(bgColor).
+		BorderStyle(lipgloss.NormalBorder()).
+		BorderTop(true).
+		BorderForeground(borderColor).
+		Padding(0, 1)
 	
 	serverItemStyle = lipgloss.NewStyle().
 		PaddingLeft(2)
 	
 	selectedItemStyle = serverItemStyle.Copy().
-		Foreground(lipgloss.Color("#00D9FF"))
+		Bold(true).
+		Foreground(primaryColor).
+		Background(bgLightColor).
+		BorderStyle(lipgloss.NormalBorder()).
+		BorderLeft(true).
+		BorderForeground(accentColor)
 	
 	enabledStyle = lipgloss.NewStyle().
-		Foreground(lipgloss.Color("#32CD32"))
+		Foreground(successColor).
+		Bold(true)
 	
 	disabledStyle = lipgloss.NewStyle().
-		Foreground(lipgloss.Color("#808080"))
+		Foreground(mutedColor)
+
+	// Info boxes
+	infoBoxStyle = lipgloss.NewStyle().
+		BorderStyle(lipgloss.RoundedBorder()).
+		BorderForeground(primaryColor).
+		Foreground(fgColor).
+		Padding(1, 2).
+		Margin(1, 0)
+
+	successBoxStyle = lipgloss.NewStyle().
+		BorderStyle(lipgloss.RoundedBorder()).
+		BorderForeground(successColor).
+		Foreground(successColor).
+		Padding(1, 2).
+		Margin(1, 0)
+
+	errorBoxStyle = lipgloss.NewStyle().
+		BorderStyle(lipgloss.RoundedBorder()).
+		BorderForeground(errorColor).
+		Foreground(errorColor).
+		Padding(1, 2).
+		Margin(1, 0)
+
+	// Section headers
+	sectionHeaderStyle = lipgloss.NewStyle().
+		Bold(true).
+		Foreground(primaryColor).
+		BorderStyle(lipgloss.NormalBorder()).
+		BorderBottom(true).
+		BorderForeground(borderColor).
+		MarginBottom(1).
+		PaddingBottom(0)
 )
 
 // Server item for list
@@ -165,26 +251,54 @@ type serverItem struct {
 }
 
 func (i serverItem) Title() string {
-	status := "◯"
+	icon := "○"
+	style := disabledStyle
 	if i.Enabled {
-		status = "●"
+		icon = "●"
+		style = enabledStyle
 	}
-	return fmt.Sprintf("%s %s", status, i.Name)
+	
+	name := style.Render(i.Name)
+	badge := ""
+	
+	// Add transport badge if available
+	if i.Transport != "" {
+		transportBadge := lipgloss.NewStyle().
+			Background(bgLightColor).
+			Foreground(mutedColor).
+			Padding(0, 1).
+			Render(i.Transport)
+		badge = " " + transportBadge
+	}
+	
+	return fmt.Sprintf("%s %s%s", icon, name, badge)
 }
 
 func (i serverItem) Description() string {
-	desc := []string{}
+	var parts []string
+	
 	if len(i.Tags) > 0 {
-		desc = append(desc, fmt.Sprintf("Tags: %s", strings.Join(i.Tags, ", ")))
+		tagStyle := lipgloss.NewStyle().Foreground(accentColor)
+		tags := tagStyle.Render(fmt.Sprintf("🏷️  %s", strings.Join(i.Tags, ", ")))
+		parts = append(parts, tags)
 	}
+	
 	if i.Command != "" {
+		cmdStyle := lipgloss.NewStyle().Foreground(mutedColor)
 		cmd := i.Command
-		if len(cmd) > 30 {
-			cmd = cmd[:27] + "..."
+		if len(cmd) > 40 {
+			cmd = cmd[:37] + "..."
 		}
-		desc = append(desc, fmt.Sprintf("Cmd: %s", cmd))
+		parts = append(parts, cmdStyle.Render(fmt.Sprintf("📟 %s", cmd)))
 	}
-	return strings.Join(desc, " | ")
+	
+	if len(i.Aliases) > 0 {
+		aliasStyle := lipgloss.NewStyle().Foreground(mutedColor).Italic(true)
+		aliases := aliasStyle.Render(fmt.Sprintf("aka: %s", strings.Join(i.Aliases, ", ")))
+		parts = append(parts, aliases)
+	}
+	
+	return strings.Join(parts, "  ")
 }
 
 func (i serverItem) FilterValue() string {
@@ -222,22 +336,34 @@ func New() (*Model, error) {
 		items = append(items, serverItem{server})
 	}
 
-	serverList := list.New(items, list.NewDefaultDelegate(), 0, 0)
+	// Create server list with enhanced styling
+	serverDelegate := list.NewDefaultDelegate()
+	serverDelegate.Styles.SelectedTitle = selectedItemStyle
+	serverDelegate.Styles.SelectedDesc = selectedItemStyle.Copy().Foreground(mutedColor)
+	serverDelegate.SetHeight(3)
+	serverDelegate.SetSpacing(1)
+	
+	serverList := list.New(items, serverDelegate, 0, 0)
 	serverList.Title = "MCP Servers"
-	serverList.SetShowStatusBar(true)
+	serverList.SetShowStatusBar(false)
 	serverList.SetShowPagination(true)
 	serverList.SetShowHelp(false)
 	serverList.Styles.Title = titleStyle
 
-	// Create profile list
+	// Create profile list with enhanced styling
 	profileItems := make([]list.Item, 0)
 	for name := range a.Canon.Profiles {
 		profileItems = append(profileItems, profileItem{name: name})
 	}
 	
-	profileList := list.New(profileItems, list.NewDefaultDelegate(), 0, 0)
+	profileDelegate := list.NewDefaultDelegate()
+	profileDelegate.Styles.SelectedTitle = selectedItemStyle
+	profileDelegate.SetHeight(2)
+	profileDelegate.SetSpacing(1)
+	
+	profileList := list.New(profileItems, profileDelegate, 0, 0)
 	profileList.Title = "Profiles"
-	profileList.SetShowStatusBar(true)
+	profileList.SetShowStatusBar(false)
 	profileList.SetShowHelp(false)
 	profileList.Styles.Title = titleStyle
 
@@ -391,39 +517,45 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 // View renders the TUI
 func (m Model) View() string {
 	if m.err != nil {
-		return fmt.Sprintf("\n  Error: %v\n\n  Press q to quit.\n", m.err)
+		return errorBoxStyle.Render(fmt.Sprintf("Error: %v\n\nPress q to quit.", m.err))
 	}
 
-	var content string
+	var sections []string
+
+	// App title
+	title := appTitleStyle.Render("🚀 mseep - MCP Server Manager")
+	sections = append(sections, title)
 
 	// Render tabs
 	tabs := m.renderTabs()
+	sections = append(sections, tabs)
 
-	// Render content based on mode
+	// Render content based on mode with enhanced styling
+	var content string
 	switch m.mode {
 	case viewServers:
-		content = m.serverList.View()
+		content = m.renderServerView()
 	case viewProfiles:
-		content = m.profileList.View()
+		content = m.renderProfileView()
 	case viewHealth:
-		content = m.viewport.View()
+		content = m.renderHealthView()
 	case viewApply:
-		content = m.viewport.View()
+		content = m.renderApplyView()
 	}
+	
+	// Apply content styling
+	styledContent := contentStyle.Width(m.width).Height(m.height-8).Render(content)
+	sections = append(sections, styledContent)
 
 	// Render status bar
 	status := m.renderStatusBar()
+	sections = append(sections, status)
 
 	// Compose full view
-	fullView := lipgloss.JoinVertical(
-		lipgloss.Top,
-		tabs,
-		content,
-		status,
-	)
+	fullView := lipgloss.JoinVertical(lipgloss.Top, sections...)
 
 	if m.showHelp {
-		helpView := m.help.View(keys)
+		helpView := m.renderHelpView()
 		return lipgloss.JoinVertical(lipgloss.Top, fullView, helpView)
 	}
 
@@ -431,17 +563,216 @@ func (m Model) View() string {
 }
 
 func (m *Model) renderTabs() string {
-	tabs := []string{}
+	var tabs []string
+	tabLabels := []string{"📦 Servers", "📋 Profiles", "🏥 Health", "🚀 Apply"}
+	tabIcons := []string{"📦", "📋", "🏥", "🚀"}
 	
-	for i, label := range []string{"Servers", "Profiles", "Health", "Apply"} {
+	for i, label := range tabLabels {
+		var tabContent string
 		if viewMode(i) == m.mode {
-			tabs = append(tabs, activeTabStyle.Render(label))
+			// Active tab with full label
+			tabContent = activeTabStyle.Render(label)
 		} else {
-			tabs = append(tabs, tabStyle.Render(label))
+			// Inactive tab with icon only or shorter label
+			simpleLabel := strings.TrimPrefix(label, tabIcons[i]+" ")
+			tabContent = tabStyle.Render(tabIcons[i] + " " + simpleLabel)
+		}
+		tabs = append(tabs, tabContent)
+	}
+	
+	// Add separators between tabs
+	tabsWithSeparators := []string{}
+	for i, tab := range tabs {
+		tabsWithSeparators = append(tabsWithSeparators, tab)
+		if i < len(tabs)-1 {
+			tabsWithSeparators = append(tabsWithSeparators, tabSeparatorStyle.Render("│"))
 		}
 	}
 	
-	return lipgloss.JoinHorizontal(lipgloss.Top, tabs...)
+	tabRow := lipgloss.JoinHorizontal(lipgloss.Top, tabsWithSeparators...)
+	return tabBarStyle.Width(m.width).Render(tabRow)
+}
+
+func (m *Model) renderServerView() string {
+	if len(m.app.Canon.Servers) == 0 {
+		return infoBoxStyle.Render("No servers configured. Add servers to your canonical configuration.")
+	}
+
+	var sections []string
+	
+	// Header with statistics
+	enabled := 0
+	disabled := 0
+	for _, srv := range m.app.Canon.Servers {
+		if srv.Enabled {
+			enabled++
+		} else {
+			disabled++
+		}
+	}
+	
+	header := sectionHeaderStyle.Width(m.width - 4).Render("MCP Servers Configuration")
+	sections = append(sections, header)
+	
+	statsBox := fmt.Sprintf("📊 Statistics: %s enabled | %s disabled | %d total",
+		enabledStyle.Render(fmt.Sprintf("%d", enabled)),
+		disabledStyle.Render(fmt.Sprintf("%d", disabled)),
+		len(m.app.Canon.Servers))
+	sections = append(sections, infoBoxStyle.Render(statsBox))
+	
+	// Server list
+	sections = append(sections, m.serverList.View())
+	
+	return strings.Join(sections, "\n")
+}
+
+func (m *Model) renderProfileView() string {
+	if len(m.app.Canon.Profiles) == 0 {
+		return infoBoxStyle.Render("No profiles configured. Create profiles to quickly switch between server configurations.")
+	}
+
+	var sections []string
+	
+	header := sectionHeaderStyle.Width(m.width - 4).Render("Server Profiles")
+	sections = append(sections, header)
+	
+	sections = append(sections, m.profileList.View())
+	
+	helpText := "💡 Press Enter to apply a profile | Press 'a' to apply current configuration"
+	sections = append(sections, infoBoxStyle.Render(helpText))
+	
+	return strings.Join(sections, "\n")
+}
+
+func (m *Model) renderHealthView() string {
+	var content strings.Builder
+	
+	header := sectionHeaderStyle.Width(m.width - 4).Render("🏥 Health Check Results")
+	content.WriteString(header + "\n\n")
+	
+	if len(m.healthResults) == 0 {
+		content.WriteString(infoBoxStyle.Render("No health checks run yet. Press 'h' to run health checks."))
+		return content.String()
+	}
+	
+	// Summary statistics
+	healthy := 0
+	unhealthy := 0
+	timeout := 0
+	for _, r := range m.healthResults {
+		switch r.Status {
+		case health.StatusHealthy:
+			healthy++
+		case health.StatusUnhealthy:
+			unhealthy++
+		case health.StatusTimeout:
+			timeout++
+		}
+	}
+	
+	summaryText := fmt.Sprintf("📊 Summary: %s healthy | %s unhealthy | %s timeout",
+		enabledStyle.Render(fmt.Sprintf("%d", healthy)),
+		lipgloss.NewStyle().Foreground(errorColor).Render(fmt.Sprintf("%d", unhealthy)),
+		lipgloss.NewStyle().Foreground(warningColor).Render(fmt.Sprintf("%d", timeout)))
+	content.WriteString(infoBoxStyle.Render(summaryText) + "\n\n")
+	
+	// Individual results
+	content.WriteString("📋 Detailed Results:\n\n")
+	for _, result := range m.healthResults {
+		icon := "❓"
+		var style lipgloss.Style
+		
+		switch result.Status {
+		case health.StatusHealthy:
+			icon = "✅"
+			style = enabledStyle
+		case health.StatusUnhealthy:
+			icon = "❌"
+			style = lipgloss.NewStyle().Foreground(errorColor)
+		case health.StatusTimeout:
+			icon = "⏱️"
+			style = lipgloss.NewStyle().Foreground(warningColor)
+		case health.StatusError:
+			icon = "⚠️"
+			style = lipgloss.NewStyle().Foreground(errorColor)
+		}
+		
+		resultLine := fmt.Sprintf("%s %s - %s (%v)",
+			icon,
+			style.Render(result.ServerName),
+			result.Message,
+			result.Duration.Round(time.Millisecond))
+		
+		content.WriteString("  " + resultLine + "\n")
+	}
+	
+	return content.String()
+}
+
+func (m *Model) renderApplyView() string {
+	var sections []string
+	
+	header := sectionHeaderStyle.Width(m.width - 4).Render("🚀 Apply Configuration")
+	sections = append(sections, header)
+	
+	instructions := `This will apply your canonical configuration to all detected clients.
+
+Actions available:
+• Press 'a' to apply changes
+• Press 'r' to refresh and see current diff
+• Press 'q' to go back
+
+The system will:
+1. Create automatic backups
+2. Show a diff preview
+3. Safely merge configurations
+4. Preserve unmanaged servers`
+	
+	sections = append(sections, infoBoxStyle.Render(instructions))
+	
+	if m.message != "" {
+		if strings.Contains(m.message, "success") {
+			sections = append(sections, successBoxStyle.Render("✅ " + m.message))
+		} else if strings.Contains(m.message, "Error") {
+			sections = append(sections, errorBoxStyle.Render("❌ " + m.message))
+		} else {
+			sections = append(sections, infoBoxStyle.Render(m.message))
+		}
+	}
+	
+	return strings.Join(sections, "\n")
+}
+
+func (m *Model) renderHelpView() string {
+	helpText := `
+🎮 Keyboard Shortcuts
+─────────────────────
+
+Navigation:
+  ↑/k, ↓/j    Move up/down
+  ←/h, →/l    Previous/next tab
+  tab         Switch view
+  enter       Select item
+  esc         Go back
+
+Actions:
+  t, space    Toggle server
+  a           Apply changes
+  h           Run health check
+  p           View profiles
+  r           Refresh
+  
+General:
+  ?           Toggle help
+  q           Quit
+
+💡 Tips:
+  • Use fuzzy search to find servers quickly
+  • Create profiles to save server configurations
+  • Health checks help identify issues
+  • All changes create automatic backups
+`
+	return infoBoxStyle.Width(m.width).Render(helpText)
 }
 
 func (m *Model) renderStatusBar() string {
@@ -449,13 +780,8 @@ func (m *Model) renderStatusBar() string {
 	
 	if m.loading {
 		status = m.spinner.View() + " Loading..."
-	} else if m.message != "" {
+	} else if m.message != "" && time.Since(time.Now()).Seconds() < 3 {
 		status = m.message
-		// Clear message after displaying
-		go func() {
-			time.Sleep(3 * time.Second)
-			m.message = ""
-		}()
 	} else {
 		switch m.mode {
 		case viewServers:
@@ -465,10 +791,10 @@ func (m *Model) renderStatusBar() string {
 					enabled++
 				}
 			}
-			status = fmt.Sprintf("%d/%d servers enabled | Press ? for help",
+			status = fmt.Sprintf("📦 %d/%d servers enabled | ⌨️ t: toggle | ?: help | q: quit",
 				enabled, len(m.app.Canon.Servers))
 		case viewProfiles:
-			status = fmt.Sprintf("%d profiles | Press enter to apply",
+			status = fmt.Sprintf("📋 %d profiles | ⌨️ enter: apply | ?: help | q: quit",
 				len(m.app.Canon.Profiles))
 		case viewHealth:
 			if len(m.healthResults) > 0 {
@@ -478,13 +804,13 @@ func (m *Model) renderStatusBar() string {
 						healthy++
 					}
 				}
-				status = fmt.Sprintf("%d/%d healthy | Press r to refresh",
+				status = fmt.Sprintf("🏥 %d/%d healthy | ⌨️ h: recheck | r: refresh | q: quit",
 					healthy, len(m.healthResults))
 			} else {
-				status = "Press h to run health checks"
+				status = "🏥 Press 'h' to run health checks | ?: help | q: quit"
 			}
 		case viewApply:
-			status = "Press a to apply changes | Press r to refresh"
+			status = "🚀 Press 'a' to apply | r: refresh | ?: help | q: quit"
 		}
 	}
 	

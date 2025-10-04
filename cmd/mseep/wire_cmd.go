@@ -31,7 +31,18 @@ func runStatus(client string, json bool) error {
 	fmt.Print(output)
 	return nil
 }
-func runHealth(client, server string, fix bool) error { fmt.Println("health coming soon"); return nil }
+func runHealth(client, server string, fix bool) error {
+	a, err := app.LoadApp()
+	if err != nil {
+		return err
+	}
+	output, err := a.Health(client, server, fix, false)
+	if err != nil {
+		return err
+	}
+	fmt.Print(output)
+	return nil
+}
 func runApply(client, profile string) error {
 	a, err := app.LoadApp()
 	if err != nil {

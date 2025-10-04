@@ -1,9 +1,6 @@
 # mseep Development TODO List
 
 ## Priority 1 - Core Functionality
-- [ ] Implement status command to show client and server status
-- [ ] Implement apply command with diff preview
-- [ ] Create proper unified diff implementation
 - [ ] Implement health check package infrastructure
 - [ ] Implement health command using health check package
 
@@ -23,4 +20,8 @@
 - [ ] Improve fuzzy matching with user prompts for ambiguous matches
 
 ## Completed
+- [x] Implement status command to show client and server status
+- [x] Implement apply command with diff preview
+- [x] Create proper unified diff implementation
+- [x] Add Charm libraries (lipgloss, glamour, etc) for beautiful CLI output
 - [x] Save todo list to file for persistence

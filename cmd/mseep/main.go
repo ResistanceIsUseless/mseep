@@ -86,31 +86,33 @@ func cmdToggle() *cobra.Command {
 }
 
 func cmdStatus() *cobra.Command {
-	var client, jsonOut string
+	var client string
+	var jsonOut bool
 	cmd := &cobra.Command{
 		Use:   "status",
 		Short: "Show status of clients and servers",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return runStatus(client, jsonOut == "true")
+			return runStatus(client, jsonOut)
 		},
 	}
 	cmd.Flags().StringVar(&client, "client", "", "Target client (empty=all)")
-	cmd.Flags().StringVar(&jsonOut, "json", "", "Output JSON")
+	cmd.Flags().BoolVar(&jsonOut, "json", false, "Output JSON")
 	return cmd
 }
 
 func cmdHealth() *cobra.Command {
-	var client, server, fix string
+	var client, server string
+	var fix bool
 	cmd := &cobra.Command{
 		Use:   "health",
 		Short: "Run health checks (manual, opt-in)",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return runHealth(client, server, fix == "true")
+			return runHealth(client, server, fix)
 		},
 	}
 	cmd.Flags().StringVar(&client, "client", "", "Target client (empty=all)")
 	cmd.Flags().StringVar(&server, "server", "", "Limit to one server by query")
-	cmd.Flags().StringVar(&fix, "fix", "", "Offer auto-disable for failing servers in this run")
+	cmd.Flags().BoolVar(&fix, "fix", false, "Auto-disable failing servers")
 	return cmd
 }
 

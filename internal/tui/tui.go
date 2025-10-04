@@ -17,6 +17,7 @@ import (
 	"mseep/internal/app"
 	"mseep/internal/config"
 	"mseep/internal/health"
+	"mseep/internal/marketplace"
 )
 
 // View modes
@@ -27,6 +28,7 @@ const (
 	viewProfiles
 	viewHealth
 	viewApply
+	viewMarketplace
 )
 
 // Key bindings
@@ -305,22 +307,77 @@ func (i serverItem) FilterValue() string {
 	return i.Name
 }
 
+// Marketplace item for list
+type marketplaceItem struct {
+	marketplace.ServerEntry
+}
+
+func (i marketplaceItem) Title() string {
+	icon := "📦"
+	if i.Installed {
+		icon = "✅"
+	}
+	
+	name := i.Name
+	if i.Author != "" {
+		name += " by " + i.Author
+	}
+	
+	return fmt.Sprintf("%s %s", icon, name)
+}
+
+func (i marketplaceItem) Description() string {
+	var parts []string
+	
+	if i.ServerEntry.Description != "" {
+		desc := i.ServerEntry.Description
+		if len(desc) > 80 {
+			desc = desc[:77] + "..."
+		}
+		parts = append(parts, desc)
+	}
+	
+	if len(i.Tags) > 0 {
+		tagStyle := lipgloss.NewStyle().Foreground(accentColor)
+		tags := tagStyle.Render(fmt.Sprintf("🏷️  %s", strings.Join(i.Tags, ", ")))
+		parts = append(parts, tags)
+	}
+	
+	if i.Repository != "" {
+		repoStyle := lipgloss.NewStyle().Foreground(mutedColor)
+		repo := i.Repository
+		if len(repo) > 50 {
+			repo = repo[:47] + "..."
+		}
+		parts = append(parts, repoStyle.Render(fmt.Sprintf("📂 %s", repo)))
+	}
+	
+	return strings.Join(parts, "  ")
+}
+
+func (i marketplaceItem) FilterValue() string {
+	return i.Name + " " + i.ServerEntry.Description + " " + strings.Join(i.Tags, " ")
+}
+
 // Model represents the TUI application state
 type Model struct {
-	app          *app.App
-	mode         viewMode
-	serverList   list.Model
-	profileList  list.Model
-	viewport     viewport.Model
-	spinner      spinner.Model
-	help         help.Model
-	healthResults []health.CheckResult
-	width        int
-	height       int
-	showHelp     bool
-	loading      bool
-	message      string
-	err          error
+	app               *app.App
+	mode              viewMode
+	serverList        list.Model
+	profileList       list.Model
+	marketplaceList   list.Model
+	viewport          viewport.Model
+	spinner           spinner.Model
+	help              help.Model
+	marketplace       *marketplace.Marketplace
+	marketplaceServers []marketplace.ServerEntry
+	healthResults     []health.CheckResult
+	width             int
+	height            int
+	showHelp          bool
+	loading           bool
+	message           string
+	err               error
 }
 
 // New creates a new TUI model
@@ -367,21 +424,37 @@ func New() (*Model, error) {
 	profileList.SetShowHelp(false)
 	profileList.Styles.Title = titleStyle
 
+	// Create marketplace list with enhanced styling
+	marketplaceDelegate := list.NewDefaultDelegate()
+	marketplaceDelegate.Styles.SelectedTitle = selectedItemStyle
+	marketplaceDelegate.Styles.SelectedDesc = selectedItemStyle.Copy().Foreground(mutedColor)
+	marketplaceDelegate.SetHeight(4)  // Taller items for more info
+	marketplaceDelegate.SetSpacing(1)
+	
+	marketplaceList := list.New([]list.Item{}, marketplaceDelegate, 0, 0)
+	marketplaceList.Title = "MCP Marketplace"
+	marketplaceList.SetShowStatusBar(false)
+	marketplaceList.SetShowPagination(true)
+	marketplaceList.SetShowHelp(false)
+	marketplaceList.Styles.Title = titleStyle
+
 	// Create spinner
 	sp := spinner.New()
 	sp.Spinner = spinner.Dot
 	sp.Style = lipgloss.NewStyle().Foreground(lipgloss.Color("#00D9FF"))
 
 	return &Model{
-		app:         a,
-		mode:        viewServers,
-		serverList:  serverList,
-		profileList: profileList,
-		viewport:    viewport.New(0, 0),
-		spinner:     sp,
-		help:        help.New(),
-		showHelp:    false,
-		loading:     false,
+		app:             a,
+		mode:            viewServers,
+		serverList:      serverList,
+		profileList:     profileList,
+		marketplaceList: marketplaceList,
+		viewport:        viewport.New(0, 0),
+		spinner:         sp,
+		help:            help.New(),
+		marketplace:     marketplace.NewMarketplace(),
+		showHelp:        false,
+		loading:         false,
 	}, nil
 }
 
@@ -403,6 +476,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.height = msg.Height
 		m.serverList.SetSize(msg.Width, msg.Height-4)
 		m.profileList.SetSize(msg.Width, msg.Height-4)
+		m.marketplaceList.SetSize(msg.Width, msg.Height-4)
 		m.viewport.Width = msg.Width
 		m.viewport.Height = msg.Height - 4
 		return m, nil
@@ -421,12 +495,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 
 		case key.Matches(msg, keys.Tab), key.Matches(msg, keys.Right):
-			m.mode = (m.mode + 1) % 4
+			m.mode = (m.mode + 1) % 5
 			return m, nil
 
 		case key.Matches(msg, keys.Left):
 			if m.mode == 0 {
-				m.mode = 3
+				m.mode = 4
 			} else {
 				m.mode--
 			}
@@ -440,6 +514,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case key.Matches(msg, keys.Enter):
 			if m.mode == viewProfiles {
 				return m, m.applySelectedProfile()
+			} else if m.mode == viewMarketplace {
+				return m, m.installSelectedServer()
 			}
 
 		case key.Matches(msg, keys.Apply):
@@ -488,6 +564,20 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			cmds = append(cmds, cmd)
 		}
 
+	case marketplaceLoadedMsg:
+		m.loading = false
+		m.marketplaceServers = msg.servers
+		m.updateMarketplaceList()
+		m.message = fmt.Sprintf("Loaded %d servers from marketplace", len(msg.servers))
+		return m, nil
+
+	case installMsg:
+		m.loading = false
+		m.app = msg.app
+		m.message = fmt.Sprintf("Successfully installed server %q", msg.serverName)
+		// Refresh marketplace to update installed status
+		return m, m.loadMarketplace()
+
 	case errorMsg:
 		m.loading = false
 		m.err = msg.err
@@ -504,6 +594,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case viewProfiles:
 		var cmd tea.Cmd
 		m.profileList, cmd = m.profileList.Update(msg)
+		cmds = append(cmds, cmd)
+	case viewMarketplace:
+		var cmd tea.Cmd
+		m.marketplaceList, cmd = m.marketplaceList.Update(msg)
 		cmds = append(cmds, cmd)
 	case viewHealth, viewApply:
 		var cmd tea.Cmd
@@ -541,6 +635,8 @@ func (m Model) View() string {
 		content = m.renderHealthView()
 	case viewApply:
 		content = m.renderApplyView()
+	case viewMarketplace:
+		content = m.renderMarketplaceView()
 	}
 	
 	// Apply content styling
@@ -564,8 +660,8 @@ func (m Model) View() string {
 
 func (m *Model) renderTabs() string {
 	var tabs []string
-	tabLabels := []string{"📦 Servers", "📋 Profiles", "🏥 Health", "🚀 Apply"}
-	tabIcons := []string{"📦", "📋", "🏥", "🚀"}
+	tabLabels := []string{"📦 Servers", "📋 Profiles", "🏥 Health", "🚀 Apply", "🛒 Marketplace"}
+	tabIcons := []string{"📦", "📋", "🏥", "🚀", "🛒"}
 	
 	for i, label := range tabLabels {
 		var tabContent string
@@ -811,6 +907,19 @@ func (m *Model) renderStatusBar() string {
 			}
 		case viewApply:
 			status = "🚀 Press 'a' to apply | r: refresh | ?: help | q: quit"
+		case viewMarketplace:
+			if len(m.marketplaceServers) > 0 {
+				installed := 0
+				for _, srv := range m.marketplaceServers {
+					if srv.Installed {
+						installed++
+					}
+				}
+				status = fmt.Sprintf("🛒 %d servers available | %d installed | ⌨️ enter: install | r: refresh | ?: help | q: quit",
+					len(m.marketplaceServers), installed)
+			} else {
+				status = "🛒 Press 'r' to load marketplace | ?: help | q: quit"
+			}
 		}
 	}
 	
@@ -871,6 +980,10 @@ func (m *Model) runHealthCheck() tea.Cmd {
 }
 
 func (m *Model) refresh() tea.Cmd {
+	if m.mode == viewMarketplace {
+		return m.loadMarketplace()
+	}
+	
 	m.loading = true
 	return func() tea.Msg {
 		return refreshMsg{}
@@ -917,6 +1030,94 @@ func (m *Model) updateHealthView() {
 	m.viewport.SetContent(content.String())
 }
 
+func (m *Model) renderMarketplaceView() string {
+	var sections []string
+	
+	header := sectionHeaderStyle.Width(m.width - 4).Render("🛒 MCP Marketplace")
+	sections = append(sections, header)
+	
+	if len(m.marketplaceServers) == 0 {
+		instructions := `Welcome to the MCP Marketplace!
+
+Discover and install MCP servers from the community:
+• Press 'r' to refresh and load available servers
+• Browse servers by name, description, or tags  
+• Press 'enter' to install a server to your canonical config
+• Installed servers are marked with ✅
+
+The marketplace aggregates servers from:
+• Official Anthropic MCP servers
+• Community curated awesome lists
+• GitHub repositories`
+		
+		sections = append(sections, infoBoxStyle.Render(instructions))
+		return strings.Join(sections, "\n")
+	}
+	
+	// Show marketplace statistics
+	installed := 0
+	for _, srv := range m.marketplaceServers {
+		if srv.Installed {
+			installed++
+		}
+	}
+	
+	statsBox := fmt.Sprintf("📊 Statistics: %d total servers | %s installed | %s available to install",
+		len(m.marketplaceServers),
+		enabledStyle.Render(fmt.Sprintf("%d", installed)),
+		lipgloss.NewStyle().Foreground(primaryColor).Render(fmt.Sprintf("%d", len(m.marketplaceServers)-installed)))
+	sections = append(sections, infoBoxStyle.Render(statsBox))
+	
+	// Server list
+	sections = append(sections, m.marketplaceList.View())
+	
+	return strings.Join(sections, "\n")
+}
+
+func (m *Model) installSelectedServer() tea.Cmd {
+	if item, ok := m.marketplaceList.SelectedItem().(marketplaceItem); ok {
+		if item.Installed {
+			m.message = fmt.Sprintf("Server %q is already installed", item.Name)
+			return nil
+		}
+		
+		m.loading = true
+		return func() tea.Msg {
+			err := m.marketplace.InstallServer(item.ServerEntry, m.app.Canon)
+			if err != nil {
+				return errorMsg{err: err}
+			}
+			// Reload app state after installation
+			newApp, err := app.LoadApp()
+			if err != nil {
+				return errorMsg{err: err}
+			}
+			return installMsg{serverName: item.Name, app: newApp}
+		}
+	}
+	return nil
+}
+
+func (m *Model) loadMarketplace() tea.Cmd {
+	m.loading = true
+	return func() tea.Msg {
+		ctx := context.Background()
+		servers, err := m.marketplace.GetServers(ctx, m.app.Canon)
+		if err != nil {
+			return errorMsg{err: err}
+		}
+		return marketplaceLoadedMsg{servers: servers}
+	}
+}
+
+func (m *Model) updateMarketplaceList() {
+	items := make([]list.Item, 0, len(m.marketplaceServers))
+	for _, server := range m.marketplaceServers {
+		items = append(items, marketplaceItem{server})
+	}
+	m.marketplaceList.SetItems(items)
+}
+
 // Profile item for list
 type profileItem struct {
 	name string
@@ -939,4 +1140,13 @@ type refreshMsg struct{}
 
 type errorMsg struct {
 	err error
+}
+
+type marketplaceLoadedMsg struct {
+	servers []marketplace.ServerEntry
+}
+
+type installMsg struct {
+	serverName string
+	app        *app.App
 }

@@ -2,7 +2,10 @@ package app
 
 import (
 	"mseep/internal/adapters/claude"
+	"mseep/internal/adapters/cline"
 	"mseep/internal/adapters/cursor"
+	"mseep/internal/adapters/vscode"
+	"mseep/internal/adapters/warp"
 	"mseep/internal/config"
 	"mseep/internal/fuzzy"
 )
@@ -45,28 +48,29 @@ func (a *App) Toggle(mode, query, client string, assumeYes bool) (string, error)
 	var diff string
 	var lastErr error
 	
-	aCl := claude.Adapter{}
-	aCu := cursor.Adapter{}
-	
-	if client == "" || client == "claude" {
-		ok, _ := aCl.Detect()
-		if ok {
-			d, err := aCl.Apply(a.Canon)
-			if err != nil {
-				lastErr = err
-			} else {
-				diff = d
-			}
-		}
+	adapters := map[string]interface {
+		Name() string
+		Detect() (bool, error)
+		Apply(*config.Canonical) (string, error)
+	}{
+		"claude": claude.Adapter{},
+		"cursor": cursor.Adapter{},
+		"vscode": vscode.Adapter{},
+		"cline":  cline.Adapter{},
+		"warp":   warp.Adapter{},
 	}
 	
-	if client == "" || client == "cursor" {
-		ok, _ := aCu.Detect()
+	for name, adapter := range adapters {
+		if client != "" && client != name {
+			continue // Skip if specific client requested and this isn't it
+		}
+		
+		ok, _ := adapter.Detect()
 		if ok {
-			d, err := aCu.Apply(a.Canon)
+			d, err := adapter.Apply(a.Canon)
 			if err != nil {
 				lastErr = err
-			} else {
+			} else if d != "" {
 				if diff != "" {
 					diff += "\n\n" + d
 				} else {

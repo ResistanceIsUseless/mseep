@@ -7,7 +7,10 @@ import (
 	"strings"
 
 	"mseep/internal/adapters/claude"
+	"mseep/internal/adapters/cline"
 	"mseep/internal/adapters/cursor"
+	"mseep/internal/adapters/vscode"
+	"mseep/internal/adapters/warp"
 	"mseep/internal/style"
 )
 
@@ -34,156 +37,21 @@ type ServerStatus struct {
 func (a *App) Status(client string, jsonOutput bool) (string, error) {
 	report := StatusReport{Clients: []ClientStatus{}}
 
-	// Check Claude if no specific client or client is "claude" 
-	if client == "" || client == "claude" {
-		claudeAdapter := claude.Adapter{}
-		claudeStatus := ClientStatus{
-			Name:    "claude",
-			Servers: []ServerStatus{},
+	// Check each client type
+	adapters := []string{"claude", "cursor", "vscode", "cline", "warp"}
+	
+	for _, name := range adapters {
+		// Skip if specific client requested and this isn't it
+		if client != "" && client != name {
+			continue
 		}
 
-		// Check if Claude is installed
-		installed, err := claudeAdapter.Detect()
+		clientStatus, err := a.getClientStatusByName(name)
 		if err != nil {
-			return "", fmt.Errorf("error detecting claude: %w", err)
-		}
-		claudeStatus.Installed = installed
-
-		if installed {
-			path, _ := claudeAdapter.Path()
-			claudeStatus.Path = path
-
-			// Load Claude config
-			claudeConfig, err := claudeAdapter.Load()
-			if err != nil {
-				return "", fmt.Errorf("error loading claude config: %w", err)
-			}
-
-			// Build server status list
-			serverMap := make(map[string]*ServerStatus)
-
-			// First, add all canonical servers
-			for _, srv := range a.Canon.Servers {
-				serverMap[srv.Name] = &ServerStatus{
-					Name:          srv.Name,
-					EnabledCanon:  srv.Enabled,
-					EnabledClient: false,
-					InSync:        false,
-					Tags:          srv.Tags,
-					Transport:     srv.Transport,
-				}
-			}
-
-			// Then check which ones are in Claude config
-			for name := range claudeConfig.MCPServers {
-				if status, exists := serverMap[name]; exists {
-					status.EnabledClient = true
-					status.InSync = (status.EnabledCanon == status.EnabledClient)
-				} else {
-					// Server in Claude but not in canonical
-					serverMap[name] = &ServerStatus{
-						Name:          name,
-						EnabledCanon:  false,
-						EnabledClient: true,
-						InSync:        false,
-					}
-				}
-			}
-
-			// Convert map to sorted slice
-			for _, status := range serverMap {
-				// Mark as in sync if both are enabled or both are disabled
-				status.InSync = (status.EnabledCanon == status.EnabledClient)
-				claudeStatus.Servers = append(claudeStatus.Servers, *status)
-			}
-			
-			// Sort servers by name
-			sort.Slice(claudeStatus.Servers, func(i, j int) bool {
-				return claudeStatus.Servers[i].Name < claudeStatus.Servers[j].Name
-			})
+			return "", fmt.Errorf("error getting status for %s: %w", name, err)
 		}
 
-		report.Clients = append(report.Clients, claudeStatus)
-	}
-
-	// Check Cursor if no specific client or client is "cursor"
-	if client == "" || client == "cursor" {
-		cursorAdapter := cursor.Adapter{}
-		cursorStatus := ClientStatus{
-			Name:    "cursor",
-			Servers: []ServerStatus{},
-		}
-
-		// Check if Cursor is installed
-		installed, err := cursorAdapter.Detect()
-		if err != nil {
-			return "", fmt.Errorf("error detecting cursor: %w", err)
-		}
-		cursorStatus.Installed = installed
-
-		if installed {
-			path, _ := cursorAdapter.Path()
-			cursorStatus.Path = path
-
-			// Load Cursor config
-			cursorConfig, err := cursorAdapter.Load()
-			if err != nil {
-				return "", fmt.Errorf("error loading cursor config: %w", err)
-			}
-
-			// Build server status list
-			serverMap := make(map[string]*ServerStatus)
-
-			// First, add all canonical servers
-			for _, srv := range a.Canon.Servers {
-				serverMap[srv.Name] = &ServerStatus{
-					Name:          srv.Name,
-					EnabledCanon:  srv.Enabled,
-					EnabledClient: false,
-					InSync:        false,
-					Tags:          srv.Tags,
-					Transport:     srv.Transport,
-				}
-			}
-
-			// Then check which ones are in Cursor config
-			for name := range cursorConfig.MCPServers {
-				if status, exists := serverMap[name]; exists {
-					status.EnabledClient = true
-					status.InSync = (status.EnabledCanon == status.EnabledClient)
-				} else {
-					// Server in Cursor but not in canonical
-					serverMap[name] = &ServerStatus{
-						Name:          name,
-						EnabledCanon:  false,
-						EnabledClient: true,
-						InSync:        false,
-					}
-				}
-			}
-
-			// Convert map to sorted slice
-			for _, status := range serverMap {
-				// Mark as in sync if both are enabled or both are disabled
-				status.InSync = (status.EnabledCanon == status.EnabledClient)
-				cursorStatus.Servers = append(cursorStatus.Servers, *status)
-			}
-			
-			// Sort servers by name
-			sort.Slice(cursorStatus.Servers, func(i, j int) bool {
-				return cursorStatus.Servers[i].Name < cursorStatus.Servers[j].Name
-			})
-		}
-
-		report.Clients = append(report.Clients, cursorStatus)
-	}
-
-	if client == "cline" {
-		report.Clients = append(report.Clients, ClientStatus{
-			Name:      "cline",
-			Installed: false,
-			Servers:   []ServerStatus{},
-		})
+		report.Clients = append(report.Clients, clientStatus)
 	}
 
 	// Format output
@@ -300,4 +168,154 @@ func (a *App) Status(client string, jsonOutput bool) (string, error) {
 	}
 
 	return output.String(), nil
+}
+
+func (a *App) getClientStatusByName(name string) (ClientStatus, error) {
+	clientStatus := ClientStatus{
+		Name:    name,
+		Servers: []ServerStatus{},
+	}
+
+	var serverNames []string
+	var installed bool
+	var path string
+	var err error
+
+	// Handle each client type specifically
+	switch name {
+	case "claude":
+		adapter := claude.Adapter{}
+		installed, err = adapter.Detect()
+		if err != nil {
+			return clientStatus, err
+		}
+		if installed {
+			path, _ = adapter.Path()
+			config, err := adapter.Load()
+			if err != nil {
+				return clientStatus, err
+			}
+			for serverName := range config.MCPServers {
+				serverNames = append(serverNames, serverName)
+			}
+		}
+	case "cursor":
+		adapter := cursor.Adapter{}
+		installed, err = adapter.Detect()
+		if err != nil {
+			return clientStatus, err
+		}
+		if installed {
+			path, _ = adapter.Path()
+			config, err := adapter.Load()
+			if err != nil {
+				return clientStatus, err
+			}
+			for serverName := range config.MCPServers {
+				serverNames = append(serverNames, serverName)
+			}
+		}
+	case "vscode":
+		adapter := vscode.Adapter{}
+		installed, err = adapter.Detect()
+		if err != nil {
+			return clientStatus, err
+		}
+		if installed {
+			path, _ = adapter.Path()
+			config, err := adapter.Load()
+			if err != nil {
+				return clientStatus, err
+			}
+			for serverName := range config.MCPServers {
+				serverNames = append(serverNames, serverName)
+			}
+		}
+	case "cline":
+		adapter := cline.Adapter{}
+		installed, err = adapter.Detect()
+		if err != nil {
+			return clientStatus, err
+		}
+		if installed {
+			path, _ = adapter.Path()
+			config, err := adapter.Load()
+			if err != nil {
+				return clientStatus, err
+			}
+			for serverName := range config.MCPServers {
+				serverNames = append(serverNames, serverName)
+			}
+		}
+	case "warp":
+		adapter := warp.Adapter{}
+		installed, err = adapter.Detect()
+		if err != nil {
+			return clientStatus, err
+		}
+		if installed {
+			path, _ = adapter.Path()
+			config, err := adapter.Load()
+			if err != nil {
+				return clientStatus, err
+			}
+			for serverName := range config.MCPServers {
+				serverNames = append(serverNames, serverName)
+			}
+		}
+	default:
+		return clientStatus, fmt.Errorf("unknown client: %s", name)
+	}
+
+	clientStatus.Installed = installed
+	clientStatus.Path = path
+
+	if !installed {
+		return clientStatus, nil
+	}
+
+	// Build server status list
+	serverMap := make(map[string]*ServerStatus)
+
+	// First, add all canonical servers
+	for _, srv := range a.Canon.Servers {
+		serverMap[srv.Name] = &ServerStatus{
+			Name:          srv.Name,
+			EnabledCanon:  srv.Enabled,
+			EnabledClient: false,
+			InSync:        false,
+			Tags:          srv.Tags,
+			Transport:     srv.Transport,
+		}
+	}
+
+	// Then check which ones are in client config
+	for _, serverName := range serverNames {
+		if status, exists := serverMap[serverName]; exists {
+			status.EnabledClient = true
+			status.InSync = (status.EnabledCanon == status.EnabledClient)
+		} else {
+			// Server in client but not in canonical
+			serverMap[serverName] = &ServerStatus{
+				Name:          serverName,
+				EnabledCanon:  false,
+				EnabledClient: true,
+				InSync:        false,
+			}
+		}
+	}
+
+	// Convert map to sorted slice
+	for _, status := range serverMap {
+		// Mark as in sync if both are enabled or both are disabled
+		status.InSync = (status.EnabledCanon == status.EnabledClient)
+		clientStatus.Servers = append(clientStatus.Servers, *status)
+	}
+	
+	// Sort servers by name
+	sort.Slice(clientStatus.Servers, func(i, j int) bool {
+		return clientStatus.Servers[i].Name < clientStatus.Servers[j].Name
+	})
+
+	return clientStatus, nil
 }

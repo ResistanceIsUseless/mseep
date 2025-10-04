@@ -8,7 +8,10 @@ import (
 	"strings"
 
 	"mseep/internal/adapters/claude"
+	"mseep/internal/adapters/cline"
 	"mseep/internal/adapters/cursor"
+	"mseep/internal/adapters/vscode"
+	"mseep/internal/adapters/warp"
 	"mseep/internal/config"
 	"mseep/internal/diff"
 	"mseep/internal/style"
@@ -27,13 +30,19 @@ func (a *App) Apply(client, profile string, autoApprove bool) error {
 	clients := []string{}
 	if client == "" || client == "all" {
 		// Apply to all detected clients
-		if ca := (claude.Adapter{}); detectClient(ca) {
-			clients = append(clients, "claude")
+		adapters := map[string]interface{ Detect() (bool, error) }{
+			"claude": claude.Adapter{},
+			"cursor": cursor.Adapter{},
+			"vscode": vscode.Adapter{},
+			"cline":  cline.Adapter{},
+			"warp":   warp.Adapter{},
 		}
-		if ca := (cursor.Adapter{}); detectClient(ca) {
-			clients = append(clients, "cursor")
+		
+		for name, adapter := range adapters {
+			if detectClient(adapter) {
+				clients = append(clients, name)
+			}
 		}
-		// TODO: Add Cline when implemented
 	} else {
 		clients = append(clients, client)
 	}
@@ -59,8 +68,18 @@ func (a *App) Apply(client, profile string, autoApprove bool) error {
 			if err := a.applytoCursor(autoApprove); err != nil {
 				return fmt.Errorf("failed to apply to cursor: %w", err)
 			}
+		case "vscode":
+			if err := a.applyToVSCode(autoApprove); err != nil {
+				return fmt.Errorf("failed to apply to vscode: %w", err)
+			}
 		case "cline":
-			fmt.Print(style.Warning("Cline support not yet implemented") + "\n")
+			if err := a.applyToCline(autoApprove); err != nil {
+				return fmt.Errorf("failed to apply to cline: %w", err)
+			}
+		case "warp":
+			if err := a.applyToWarp(autoApprove); err != nil {
+				return fmt.Errorf("failed to apply to warp: %w", err)
+			}
 		default:
 			return fmt.Errorf("unknown client: %s", c)
 		}
@@ -319,6 +338,74 @@ func (a *App) applytoCursor(autoApprove bool) error {
 	}
 
 	fmt.Print(style.Success("Configuration applied successfully to Cursor") + "\n")
+	return nil
+}
+
+func (a *App) applyToVSCode(autoApprove bool) error {
+	return a.applyToGenericClient(vscode.Adapter{}, "VS Code", autoApprove)
+}
+
+func (a *App) applyToCline(autoApprove bool) error {
+	return a.applyToGenericClient(cline.Adapter{}, "Cline", autoApprove)
+}
+
+func (a *App) applyToWarp(autoApprove bool) error {
+	return a.applyToGenericClient(warp.Adapter{}, "Warp", autoApprove)
+}
+
+// Generic client application logic to reduce code duplication
+func (a *App) applyToGenericClient(adapter interface {
+	Name() string
+	Detect() (bool, error)
+	Apply(*config.Canonical) (string, error)
+	Backup() (string, error)
+	Path() (string, error)
+}, clientName string, autoApprove bool) error {
+	
+	// Check if client is installed
+	if !detectClient(adapter) {
+		return fmt.Errorf("%s not detected", clientName)
+	}
+
+	// Generate diff preview
+	diffStr, err := adapter.Apply(a.Canon)
+	if err != nil {
+		return fmt.Errorf("failed to apply to %s: %w", clientName, err)
+	}
+
+	if diffStr == "" {
+		fmt.Print(style.Success("No changes needed - configuration is already in sync") + "\n")
+		return nil
+	}
+
+	// Show diff preview
+	fmt.Print("\n" + style.Header("Configuration Changes Preview") + "\n")
+	fmt.Print(style.DiffBox(diffStr) + "\n")
+
+	// Ask for confirmation unless auto-approve is set
+	if !autoApprove {
+		fmt.Print("\nApply these changes? [y/N]: ")
+		reader := bufio.NewReader(os.Stdin)
+		response, err := reader.ReadString('\n')
+		if err != nil {
+			return fmt.Errorf("failed to read response: %w", err)
+		}
+		
+		response = strings.ToLower(strings.TrimSpace(response))
+		if response != "y" && response != "yes" {
+			fmt.Print(style.Warning("Changes not applied") + "\n")
+			return nil
+		}
+	}
+
+	// Create backup (already done in Apply, but get path for display)
+	configPath, err := adapter.Path()
+	if err != nil {
+		return fmt.Errorf("failed to get config path: %w", err)
+	}
+	
+	fmt.Print(style.Success(fmt.Sprintf("Configuration applied successfully to %s", clientName)) + "\n")
+	fmt.Print(style.Muted("Config: ") + style.Code(configPath) + "\n")
 	return nil
 }
 

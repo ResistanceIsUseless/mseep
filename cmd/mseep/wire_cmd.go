@@ -6,6 +6,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	
 	"mseep/internal/app"
+	"mseep/internal/style"
 	"mseep/internal/tui"
 )
 
@@ -59,4 +60,64 @@ func runApply(client, profile string) error {
 		return err
 	}
 	return a.Apply(client, profile, false)
+}
+
+func runProfilesList(jsonOut bool) error {
+	a, err := app.LoadApp()
+	if err != nil {
+		return err
+	}
+	output, err := a.ListProfiles(jsonOut)
+	if err != nil {
+		return err
+	}
+	fmt.Print(output)
+	return nil
+}
+
+func runProfilesCreate(name string, servers []string) error {
+	a, err := app.LoadApp()
+	if err != nil {
+		return err
+	}
+	if err := a.CreateProfile(name, servers); err != nil {
+		return err
+	}
+	fmt.Print(style.Success(fmt.Sprintf("Profile %q created with %d servers", name, len(servers))) + "\n")
+	return nil
+}
+
+func runProfilesSave(name string) error {
+	a, err := app.LoadApp()
+	if err != nil {
+		return err
+	}
+	if err := a.CreateProfileFromCurrent(name); err != nil {
+		return err
+	}
+	fmt.Print(style.Success(fmt.Sprintf("Profile %q saved from current state", name)) + "\n")
+	return nil
+}
+
+func runProfilesDelete(name string) error {
+	a, err := app.LoadApp()
+	if err != nil {
+		return err
+	}
+	if err := a.DeleteProfile(name); err != nil {
+		return err
+	}
+	fmt.Print(style.Success(fmt.Sprintf("Profile %q deleted", name)) + "\n")
+	return nil
+}
+
+func runProfilesApply(name string) error {
+	a, err := app.LoadApp()
+	if err != nil {
+		return err
+	}
+	if err := a.Apply("", name, false); err != nil {
+		return err
+	}
+	return nil
 }

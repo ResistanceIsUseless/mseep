@@ -18,7 +18,7 @@ func main() {
 		Long:  "mseep is a fast TUI/CLI to manage MCP servers across clients (Claude, Cursor, etc.).",
 	}
 
-	root.AddCommand(cmdTUI(), cmdEnable(), cmdDisable(), cmdToggle(), cmdStatus(), cmdHealth(), cmdApply())
+	root.AddCommand(cmdTUI(), cmdEnable(), cmdDisable(), cmdToggle(), cmdStatus(), cmdHealth(), cmdApply(), cmdProfiles())
 
 	if err := root.Execute(); err != nil {
 		fmt.Fprintln(os.Stderr, err)
@@ -127,5 +127,72 @@ func cmdApply() *cobra.Command {
 	}
 	cmd.Flags().StringVar(&client, "client", "", "Target client (empty=all)")
 	cmd.Flags().StringVar(&profile, "profile", "", "Profile to apply before writing")
+	return cmd
+}
+
+func cmdProfiles() *cobra.Command {
+	var jsonOut bool
+	
+	cmd := &cobra.Command{
+		Use:   "profiles",
+		Short: "Manage server profiles",
+		Long:  "List, create, delete, and manage server profiles",
+	}
+
+	// List profiles subcommand
+	listCmd := &cobra.Command{
+		Use:   "list",
+		Short: "List all profiles",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return runProfilesList(jsonOut)
+		},
+	}
+	listCmd.Flags().BoolVar(&jsonOut, "json", false, "Output as JSON")
+
+	// Create profile subcommand
+	createCmd := &cobra.Command{
+		Use:   "create <name> [server1 server2 ...]",
+		Short: "Create a new profile",
+		Args:  cobra.MinimumNArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			name := args[0]
+			servers := args[1:]
+			return runProfilesCreate(name, servers)
+		},
+	}
+
+	// Create profile from current state
+	var fromCurrent bool
+	saveCmd := &cobra.Command{
+		Use:   "save <name>",
+		Short: "Save current enabled servers as a profile",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return runProfilesSave(args[0])
+		},
+	}
+	saveCmd.Flags().BoolVar(&fromCurrent, "from-current", true, "Create from currently enabled servers")
+
+	// Delete profile subcommand
+	deleteCmd := &cobra.Command{
+		Use:   "delete <name>",
+		Short: "Delete a profile",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return runProfilesDelete(args[0])
+		},
+	}
+
+	// Apply profile subcommand
+	applyCmd := &cobra.Command{
+		Use:   "apply <name>",
+		Short: "Apply a profile",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return runProfilesApply(args[0])
+		},
+	}
+
+	cmd.AddCommand(listCmd, createCmd, saveCmd, deleteCmd, applyCmd)
 	return cmd
 }

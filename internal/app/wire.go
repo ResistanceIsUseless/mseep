@@ -1,8 +1,6 @@
 package app
 
 import (
-	"fmt"
-
 	"mseep/internal/adapters/claude"
 	"mseep/internal/adapters/cursor"
 	"mseep/internal/config"
@@ -26,9 +24,9 @@ func (a *App) Toggle(mode, query, client string, assumeYes bool) (string, error)
 	for _, s := range a.Canon.Servers {
 		idx = append(idx, fuzzy.Index{Name: s.Name, Aliases: s.Aliases, Tags: s.Tags})
 	}
-	cands := fuzzy.Candidates(query, idx)
-	if len(cands) == 0 { return "", fmt.Errorf("no match for %q", query) }
-	chosen := cands[0].Index.Name // simple best match for MVP
+	bestMatch, err := fuzzy.SelectBest(query, idx, assumeYes)
+	if err != nil { return "", err }
+	chosen := bestMatch.Name
 
 	// flip state in canonical
 	for i := range a.Canon.Servers {

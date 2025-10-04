@@ -177,3 +177,65 @@ func TestBestMatch(t *testing.T) {
 		})
 	}
 }
+
+func TestSelectBest(t *testing.T) {
+	indexes := []Index{
+		{Name: "github", Aliases: []string{"gh"}, Tags: []string{"vcs", "code"}},
+		{Name: "gitlab", Aliases: []string{"gl"}, Tags: []string{"vcs"}},
+		{Name: "gitea", Aliases: []string{}, Tags: []string{"vcs"}},
+	}
+
+	tests := []struct {
+		name         string
+		query        string
+		assumeYes    bool
+		expectedName string
+		expectError  bool
+	}{
+		{
+			name:         "exact match returns immediately",
+			query:        "github",
+			assumeYes:    false,
+			expectedName: "github",
+			expectError:  false,
+		},
+		{
+			name:         "assume yes returns best match",
+			query:        "git",
+			assumeYes:    true,
+			expectedName: "", // Any match is acceptable, order depends on scoring
+			expectError:  false,
+		},
+		{
+			name:        "no match returns error",
+			query:       "nonexistent",
+			assumeYes:   false,
+			expectError: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result, err := SelectBest(tt.query, indexes, tt.assumeYes)
+			
+			if tt.expectError {
+				if err == nil {
+					t.Errorf("expected error, got none")
+				}
+				return
+			}
+			
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			
+			if result == nil {
+				t.Fatal("expected result, got nil")
+			}
+			
+			if tt.expectedName != "" && result.Name != tt.expectedName {
+				t.Errorf("expected %s, got %s", tt.expectedName, result.Name)
+			}
+		})
+	}
+}

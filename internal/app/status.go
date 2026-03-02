@@ -7,8 +7,11 @@ import (
 	"strings"
 
 	"mseep/internal/adapters/claude"
+	"mseep/internal/adapters/claudecode"
 	"mseep/internal/adapters/cline"
+	"mseep/internal/adapters/crush"
 	"mseep/internal/adapters/cursor"
+	"mseep/internal/adapters/opencode"
 	"mseep/internal/adapters/vscode"
 	"mseep/internal/adapters/warp"
 	"mseep/internal/style"
@@ -34,12 +37,30 @@ type ServerStatus struct {
 	Transport       string `json:"transport,omitempty"`
 }
 
+// GetStatusReport returns the raw StatusReport for all (or one) clients.
+// Used by the TUI to render the status view without triggering prints.
+func (a *App) GetStatusReport(client string) (*StatusReport, error) {
+	report := &StatusReport{Clients: []ClientStatus{}}
+	adapters := []string{"claude", "claude-code", "cursor", "vscode", "cline", "warp", "crush", "opencode"}
+	for _, name := range adapters {
+		if client != "" && client != name {
+			continue
+		}
+		cs, err := a.getClientStatusByName(name)
+		if err != nil {
+			return nil, fmt.Errorf("error getting status for %s: %w", name, err)
+		}
+		report.Clients = append(report.Clients, cs)
+	}
+	return report, nil
+}
+
 func (a *App) Status(client string, jsonOutput bool) (string, error) {
 	report := StatusReport{Clients: []ClientStatus{}}
 
 	// Check each client type
-	adapters := []string{"claude", "cursor", "vscode", "cline", "warp"}
-	
+	adapters := []string{"claude", "claude-code", "cursor", "vscode", "cline", "warp", "crush", "opencode"}
+
 	for _, name := range adapters {
 		// Skip if specific client requested and this isn't it
 		if client != "" && client != name {
@@ -260,6 +281,57 @@ func (a *App) getClientStatusByName(name string) (ClientStatus, error) {
 				return clientStatus, err
 			}
 			for serverName := range config.MCPServers {
+				serverNames = append(serverNames, serverName)
+			}
+		}
+	case "claude-code":
+		adapter := claudecode.Adapter{}
+		installed, err = adapter.Detect()
+		if err != nil {
+			return clientStatus, err
+		}
+		if installed {
+			path, _ = adapter.Path()
+			config, err := adapter.Load()
+			if err != nil {
+				return clientStatus, err
+			}
+			for serverName := range config.MCPServers {
+				serverNames = append(serverNames, serverName)
+			}
+		}
+	case "crush":
+		adapter := crush.Adapter{}
+		installed, err = adapter.Detect()
+		if err != nil {
+			return clientStatus, err
+		}
+		if installed {
+			path, _ = adapter.Path()
+			config, err := adapter.Load()
+			if err != nil {
+				return clientStatus, err
+			}
+			// Crush uses "mcp" key; list any server not marked disabled.
+			for serverName, srv := range config.MCP {
+				if !srv.Disabled {
+					serverNames = append(serverNames, serverName)
+				}
+			}
+		}
+	case "opencode":
+		adapter := opencode.Adapter{}
+		installed, err = adapter.Detect()
+		if err != nil {
+			return clientStatus, err
+		}
+		if installed {
+			path, _ = adapter.Path()
+			config, err := adapter.Load()
+			if err != nil {
+				return clientStatus, err
+			}
+			for serverName := range config.MCP {
 				serverNames = append(serverNames, serverName)
 			}
 		}

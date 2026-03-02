@@ -2,8 +2,11 @@ package app
 
 import (
 	"mseep/internal/adapters/claude"
+	"mseep/internal/adapters/claudecode"
 	"mseep/internal/adapters/cline"
+	"mseep/internal/adapters/crush"
 	"mseep/internal/adapters/cursor"
+	"mseep/internal/adapters/opencode"
 	"mseep/internal/adapters/vscode"
 	"mseep/internal/adapters/warp"
 	"mseep/internal/config"
@@ -53,11 +56,14 @@ func (a *App) Toggle(mode, query, client string, assumeYes bool) (string, error)
 		Detect() (bool, error)
 		Apply(*config.Canonical) (string, error)
 	}{
-		"claude": claude.Adapter{},
-		"cursor": cursor.Adapter{},
-		"vscode": vscode.Adapter{},
-		"cline":  cline.Adapter{},
-		"warp":   warp.Adapter{},
+		"claude":      claude.Adapter{},
+		"claude-code": claudecode.Adapter{},
+		"cursor":      cursor.Adapter{},
+		"vscode":      vscode.Adapter{},
+		"cline":       cline.Adapter{},
+		"warp":        warp.Adapter{},
+		"crush":       crush.Adapter{},
+		"opencode":    opencode.Adapter{},
 	}
 	
 	for name, adapter := range adapters {

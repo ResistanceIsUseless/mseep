@@ -8,8 +8,11 @@ import (
 	"strings"
 
 	"mseep/internal/adapters/claude"
+	"mseep/internal/adapters/claudecode"
 	"mseep/internal/adapters/cline"
+	"mseep/internal/adapters/crush"
 	"mseep/internal/adapters/cursor"
+	"mseep/internal/adapters/opencode"
 	"mseep/internal/adapters/vscode"
 	"mseep/internal/adapters/warp"
 	"mseep/internal/config"
@@ -17,7 +20,14 @@ import (
 	"mseep/internal/style"
 )
 
-// Apply applies the canonical configuration to the specified client
+// Apply applies the canonical configuration to the specified client.
+//
+// Behaviour depends on the configured mode (canon.Settings.Mode):
+//
+//   basic   – write all enabled servers directly into each client config (default)
+//   wrapper – write a single "mseep proxy --client <name>" entry so that mseep
+//             multiplexes servers at runtime; all other mseep-managed entries
+//             are removed from the client config
 func (a *App) Apply(client, profile string, autoApprove bool) error {
 	// Apply profile if specified
 	if profile != "" {
@@ -31,11 +41,14 @@ func (a *App) Apply(client, profile string, autoApprove bool) error {
 	if client == "" || client == "all" {
 		// Apply to all detected clients
 		adapters := map[string]interface{ Detect() (bool, error) }{
-			"claude": claude.Adapter{},
-			"cursor": cursor.Adapter{},
-			"vscode": vscode.Adapter{},
-			"cline":  cline.Adapter{},
-			"warp":   warp.Adapter{},
+			"claude":      claude.Adapter{},
+			"claude-code": claudecode.Adapter{},
+			"cursor":      cursor.Adapter{},
+			"vscode":      vscode.Adapter{},
+			"cline":       cline.Adapter{},
+			"warp":        warp.Adapter{},
+			"crush":       crush.Adapter{},
+			"opencode":    opencode.Adapter{},
 		}
 		
 		for name, adapter := range adapters {
@@ -51,6 +64,13 @@ func (a *App) Apply(client, profile string, autoApprove bool) error {
 		return fmt.Errorf("no clients detected or specified")
 	}
 
+	// In wrapper mode, swap the canonical for a synthetic single-entry one that
+	// points each client at "mseep proxy --client <name>".
+	isWrapper := a.Canon.EffectiveMode() == "wrapper"
+	if isWrapper {
+		fmt.Print(style.Warning("Mode: wrapper — writing mseep proxy entry to client configs\n\n"))
+	}
+
 	// Apply to each client
 	for i, c := range clients {
 		if len(clients) > 1 {
@@ -58,34 +78,71 @@ func (a *App) Apply(client, profile string, autoApprove bool) error {
 		} else {
 			fmt.Print(style.Header(fmt.Sprintf("Applying configuration to %s", c)) + "\n")
 		}
-		
+
+		// When in wrapper mode we temporarily swap the canonical so the generic
+		// apply helpers write the proxy entry instead of individual servers.
+		origCanon := a.Canon
+		if isWrapper {
+			a.Canon = wrapperCanonical(c, "")
+		}
+
+		var applyErr error
 		switch c {
 		case "claude":
-			if err := a.applyToClaude(autoApprove); err != nil {
-				return fmt.Errorf("failed to apply to claude: %w", err)
-			}
+			applyErr = a.applyToClaude(autoApprove)
 		case "cursor":
-			if err := a.applytoCursor(autoApprove); err != nil {
-				return fmt.Errorf("failed to apply to cursor: %w", err)
-			}
+			applyErr = a.applytoCursor(autoApprove)
 		case "vscode":
-			if err := a.applyToVSCode(autoApprove); err != nil {
-				return fmt.Errorf("failed to apply to vscode: %w", err)
-			}
+			applyErr = a.applyToVSCode(autoApprove)
 		case "cline":
-			if err := a.applyToCline(autoApprove); err != nil {
-				return fmt.Errorf("failed to apply to cline: %w", err)
-			}
+			applyErr = a.applyToCline(autoApprove)
 		case "warp":
-			if err := a.applyToWarp(autoApprove); err != nil {
-				return fmt.Errorf("failed to apply to warp: %w", err)
-			}
+			applyErr = a.applyToWarp(autoApprove)
+		case "claude-code":
+			applyErr = a.applyToClaudeCode(autoApprove)
+		case "crush":
+			applyErr = a.applyToCrush(autoApprove)
+		case "opencode":
+			applyErr = a.applyToOpenCode(autoApprove)
 		default:
-			return fmt.Errorf("unknown client: %s", c)
+			applyErr = fmt.Errorf("unknown client: %s", c)
+		}
+
+		// Restore the real canonical regardless of error.
+		a.Canon = origCanon
+
+		if applyErr != nil {
+			return fmt.Errorf("failed to apply to %s: %w", c, applyErr)
 		}
 	}
 
 	return nil
+}
+
+// wrapperCanonical returns a synthetic Canonical that contains exactly one
+// server — the mseep proxy entry — for use when mode is "wrapper".
+// The client name is embedded in the proxy args so the proxy can identify
+// which session context it is serving.
+func wrapperCanonical(clientName, mseepBinary string) *config.Canonical {
+	// Resolve the mseep binary path; fall back to "mseep" on $PATH.
+	if mseepBinary == "" {
+		if self, err := os.Executable(); err == nil {
+			mseepBinary = self
+		} else {
+			mseepBinary = "mseep"
+		}
+	}
+	return &config.Canonical{
+		Servers: []config.Server{
+			{
+				Name:      "mseep",
+				Command:   mseepBinary,
+				Args:      []string{"proxy", "--client", clientName},
+				Transport: "stdio",
+				Enabled:   true,
+			},
+		},
+	}
 }
 
 func (a *App) applyProfile(profileName string) error {
@@ -407,6 +464,18 @@ func (a *App) applyToGenericClient(adapter interface {
 	fmt.Print(style.Success(fmt.Sprintf("Configuration applied successfully to %s", clientName)) + "\n")
 	fmt.Print(style.Muted("Config: ") + style.Code(configPath) + "\n")
 	return nil
+}
+
+func (a *App) applyToClaudeCode(autoApprove bool) error {
+	return a.applyToGenericClient(claudecode.Adapter{}, "Claude Code", autoApprove)
+}
+
+func (a *App) applyToCrush(autoApprove bool) error {
+	return a.applyToGenericClient(crush.Adapter{}, "Crush", autoApprove)
+}
+
+func (a *App) applyToOpenCode(autoApprove bool) error {
+	return a.applyToGenericClient(opencode.Adapter{}, "OpenCode", autoApprove)
 }
 
 func detectClient(adapter interface{ Detect() (bool, error) }) bool {

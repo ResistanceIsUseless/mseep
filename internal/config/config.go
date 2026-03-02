@@ -10,9 +10,33 @@ import (
 )
 
 type Canonical struct {
-	Servers  []Server          `json:"servers"`
+	Servers  []Server            `json:"servers"`
 	Profiles map[string][]string `json:"profiles"` // profile -> enabled server names
-	Meta     Meta              `json:"meta"`
+	Settings Settings            `json:"settings"`
+	Meta     Meta                `json:"meta"`
+}
+
+// Settings controls global mseep behaviour.
+type Settings struct {
+	// Mode selects how servers are delivered to clients.
+	//   "basic"   – write individual server entries directly to each client config (default)
+	//   "wrapper" – write a single "mseep proxy" entry; mseep multiplexes servers at runtime
+	Mode    string          `json:"mode,omitempty"`
+	Wrapper WrapperSettings `json:"wrapper,omitempty"`
+}
+
+// WrapperSettings tune wrapper-mode behaviour.
+type WrapperSettings struct {
+	// PollIntervalSeconds is how often the proxy polls canonical.json for changes.
+	// Default 5. Set to 0 to disable polling (static load at startup only).
+	PollIntervalSeconds int `json:"pollIntervalSeconds,omitempty"`
+
+	// NamespaceTools prefixes each tool name with "<serverName>__" to avoid
+	// collisions when multiple servers expose tools with the same name.
+	NamespaceTools bool `json:"namespaceTools,omitempty"`
+
+	// NamespaceSeparator overrides the default "__" separator.
+	NamespaceSeparator string `json:"namespaceSeparator,omitempty"`
 }
 
 type Meta struct {
@@ -93,6 +117,30 @@ func Save(path string, c *Canonical) error {
 	b, err := json.MarshalIndent(c, "", "  ")
 	if err != nil { return err }
 	return os.WriteFile(path, b, 0o644)
+}
+
+// EffectiveMode returns the resolved mode, defaulting to "basic".
+func (c *Canonical) EffectiveMode() string {
+	if c.Settings.Mode == "wrapper" {
+		return "wrapper"
+	}
+	return "basic"
+}
+
+// EffectivePollInterval returns the wrapper poll interval, defaulting to 5s.
+func (c *Canonical) EffectivePollInterval() int {
+	if c.Settings.Wrapper.PollIntervalSeconds > 0 {
+		return c.Settings.Wrapper.PollIntervalSeconds
+	}
+	return 5
+}
+
+// EffectiveNamespaceSeparator returns the separator for tool namespacing, defaulting to "__".
+func (c *Canonical) EffectiveNamespaceSeparator() string {
+	if c.Settings.Wrapper.NamespaceSeparator != "" {
+		return c.Settings.Wrapper.NamespaceSeparator
+	}
+	return "__"
 }
 
 func (c *Canonical) FindByName(name string) *Server {

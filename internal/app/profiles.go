@@ -6,8 +6,8 @@ import (
 	"sort"
 	"strings"
 
-	"mseep/internal/config"
-	"mseep/internal/style"
+	"github.com/ResistanceIsUseless/mseep/internal/config"
+	"github.com/ResistanceIsUseless/mseep/internal/style"
 )
 
 // ListProfiles returns a formatted list of profiles

@@ -1,16 +1,18 @@
 package app
 
 import (
-	"mseep/internal/adapters/claude"
-	"mseep/internal/adapters/claudecode"
-	"mseep/internal/adapters/cline"
-	"mseep/internal/adapters/crush"
-	"mseep/internal/adapters/cursor"
-	"mseep/internal/adapters/opencode"
-	"mseep/internal/adapters/vscode"
-	"mseep/internal/adapters/warp"
-	"mseep/internal/config"
-	"mseep/internal/fuzzy"
+	"github.com/ResistanceIsUseless/mseep/internal/adapters/claude"
+	"github.com/ResistanceIsUseless/mseep/internal/adapters/claudecode"
+	"github.com/ResistanceIsUseless/mseep/internal/adapters/cline"
+	"github.com/ResistanceIsUseless/mseep/internal/adapters/crush"
+	"github.com/ResistanceIsUseless/mseep/internal/adapters/cursor"
+	"github.com/ResistanceIsUseless/mseep/internal/adapters/goose"
+	"github.com/ResistanceIsUseless/mseep/internal/adapters/lmstudio"
+	"github.com/ResistanceIsUseless/mseep/internal/adapters/opencode"
+	"github.com/ResistanceIsUseless/mseep/internal/adapters/vscode"
+	"github.com/ResistanceIsUseless/mseep/internal/adapters/warp"
+	"github.com/ResistanceIsUseless/mseep/internal/config"
+	"github.com/ResistanceIsUseless/mseep/internal/fuzzy"
 )
 
 type App struct {
@@ -64,6 +66,8 @@ func (a *App) Toggle(mode, query, client string, assumeYes bool) (string, error)
 		"warp":        warp.Adapter{},
 		"crush":       crush.Adapter{},
 		"opencode":    opencode.Adapter{},
+		"lmstudio":    lmstudio.Adapter{},
+		"goose":       goose.Adapter{},
 	}
 	
 	for name, adapter := range adapters {

@@ -6,15 +6,17 @@ import (
 	"sort"
 	"strings"
 
-	"mseep/internal/adapters/claude"
-	"mseep/internal/adapters/claudecode"
-	"mseep/internal/adapters/cline"
-	"mseep/internal/adapters/crush"
-	"mseep/internal/adapters/cursor"
-	"mseep/internal/adapters/opencode"
-	"mseep/internal/adapters/vscode"
-	"mseep/internal/adapters/warp"
-	"mseep/internal/style"
+	"github.com/ResistanceIsUseless/mseep/internal/adapters/claude"
+	"github.com/ResistanceIsUseless/mseep/internal/adapters/claudecode"
+	"github.com/ResistanceIsUseless/mseep/internal/adapters/cline"
+	"github.com/ResistanceIsUseless/mseep/internal/adapters/crush"
+	"github.com/ResistanceIsUseless/mseep/internal/adapters/cursor"
+	"github.com/ResistanceIsUseless/mseep/internal/adapters/goose"
+	"github.com/ResistanceIsUseless/mseep/internal/adapters/lmstudio"
+	"github.com/ResistanceIsUseless/mseep/internal/adapters/opencode"
+	"github.com/ResistanceIsUseless/mseep/internal/adapters/vscode"
+	"github.com/ResistanceIsUseless/mseep/internal/adapters/warp"
+	"github.com/ResistanceIsUseless/mseep/internal/style"
 )
 
 type StatusReport struct {
@@ -59,7 +61,7 @@ func (a *App) Status(client string, jsonOutput bool) (string, error) {
 	report := StatusReport{Clients: []ClientStatus{}}
 
 	// Check each client type
-	adapters := []string{"claude", "claude-code", "cursor", "vscode", "cline", "warp", "crush", "opencode"}
+	adapters := []string{"claude", "claude-code", "cursor", "vscode", "cline", "warp", "crush", "opencode", "lmstudio", "goose"}
 
 	for _, name := range adapters {
 		// Skip if specific client requested and this isn't it
@@ -332,6 +334,38 @@ func (a *App) getClientStatusByName(name string) (ClientStatus, error) {
 				return clientStatus, err
 			}
 			for serverName := range config.MCP {
+				serverNames = append(serverNames, serverName)
+			}
+		}
+	case "lmstudio":
+		adapter := lmstudio.Adapter{}
+		installed, err = adapter.Detect()
+		if err != nil {
+			return clientStatus, err
+		}
+		if installed {
+			path, _ = adapter.Path()
+			config, err := adapter.Load()
+			if err != nil {
+				return clientStatus, err
+			}
+			for serverName := range config.MCPServers {
+				serverNames = append(serverNames, serverName)
+			}
+		}
+	case "goose":
+		adapter := goose.Adapter{}
+		installed, err = adapter.Detect()
+		if err != nil {
+			return clientStatus, err
+		}
+		if installed {
+			path, _ = adapter.Path()
+			config, err := adapter.Load()
+			if err != nil {
+				return clientStatus, err
+			}
+			for serverName := range config.MCPServers {
 				serverNames = append(serverNames, serverName)
 			}
 		}

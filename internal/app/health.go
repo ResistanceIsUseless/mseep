@@ -7,10 +7,9 @@ import (
 	"strings"
 	"time"
 
-	"mseep/internal/adapters/claude"
-	"mseep/internal/config"
-	"mseep/internal/health"
-	"mseep/internal/style"
+	"github.com/ResistanceIsUseless/mseep/internal/config"
+	"github.com/ResistanceIsUseless/mseep/internal/health"
+	"github.com/ResistanceIsUseless/mseep/internal/style"
 )
 
 // HealthReport represents the results of health checks
@@ -73,32 +72,30 @@ func (a *App) Health(client, serverFilter string, fix bool, jsonOutput bool) (st
 
 func (a *App) getServersForHealthCheck(client, serverFilter string) []config.Server {
 	var servers []config.Server
-	
+
 	// If client is specified, only check servers enabled for that client
 	if client != "" {
-		switch client {
-		case "claude":
-			ca := claude.Adapter{}
-			if detected, _ := ca.Detect(); !detected {
-				return servers
+		// Get the client's current config and check those servers
+		clientStatus, err := a.getClientStatusByName(client)
+		if err != nil || !clientStatus.Installed {
+			return servers
+		}
+
+		// Build map of servers in this client
+		clientServers := make(map[string]bool)
+		for _, srv := range clientStatus.Servers {
+			if srv.EnabledClient {
+				clientServers[srv.Name] = true
 			}
-			
-			claudeConfig, err := ca.Load()
-			if err != nil {
-				return servers
-			}
-			
-			// Only include servers that are in Claude config
-			for _, srv := range a.Canon.Servers {
-				if _, exists := claudeConfig.MCPServers[srv.Name]; exists {
-					if serverFilter == "" || matchesFilter(srv, serverFilter) {
-						servers = append(servers, srv)
-					}
+		}
+
+		// Only include canonical servers that are in the client config
+		for _, srv := range a.Canon.Servers {
+			if clientServers[srv.Name] {
+				if serverFilter == "" || matchesFilter(srv, serverFilter) {
+					servers = append(servers, srv)
 				}
 			}
-		case "cursor", "cline":
-			// TODO: Implement when adapters are available
-			return servers
 		}
 	} else {
 		// Check all enabled servers in canonical config
@@ -108,7 +105,7 @@ func (a *App) getServersForHealthCheck(client, serverFilter string) []config.Ser
 			}
 		}
 	}
-	
+
 	return servers
 }
 

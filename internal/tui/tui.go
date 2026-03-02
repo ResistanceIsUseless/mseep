@@ -14,10 +14,10 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 
-	"mseep/internal/app"
-	"mseep/internal/config"
-	"mseep/internal/health"
-	"mseep/internal/marketplace"
+	"github.com/ResistanceIsUseless/mseep/internal/app"
+	"github.com/ResistanceIsUseless/mseep/internal/config"
+	"github.com/ResistanceIsUseless/mseep/internal/health"
+	"github.com/ResistanceIsUseless/mseep/internal/marketplace"
 )
 
 // ---------------------------------------------------------------------------

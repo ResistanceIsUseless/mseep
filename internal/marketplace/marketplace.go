@@ -8,7 +8,7 @@ import (
 	"strings"
 	"time"
 
-	"mseep/internal/config"
+	"github.com/ResistanceIsUseless/mseep/internal/config"
 )
 
 // ServerEntry represents an MCP server available in the marketplace

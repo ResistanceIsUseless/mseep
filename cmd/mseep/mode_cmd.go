@@ -18,8 +18,8 @@ import (
 	"os"
 
 	"github.com/spf13/cobra"
-	"mseep/internal/config"
-	"mseep/internal/style"
+	"github.com/ResistanceIsUseless/mseep/internal/config"
+	"github.com/ResistanceIsUseless/mseep/internal/style"
 )
 
 // modeCmd is the parent "mode" command group.

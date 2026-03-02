@@ -5,9 +5,9 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 	
-	"mseep/internal/app"
-	"mseep/internal/style"
-	"mseep/internal/tui"
+	"github.com/ResistanceIsUseless/mseep/internal/app"
+	"github.com/ResistanceIsUseless/mseep/internal/style"
+	"github.com/ResistanceIsUseless/mseep/internal/tui"
 )
 
 func runTUI() error {

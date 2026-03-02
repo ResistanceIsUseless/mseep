@@ -50,7 +50,7 @@ import (
 	"sync/atomic"
 	"time"
 
-	"mseep/internal/config"
+	"github.com/ResistanceIsUseless/mseep/internal/config"
 )
 
 // ---------------------------------------------------------------------------

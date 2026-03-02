@@ -8,8 +8,8 @@ import (
 	"runtime"
 	"time"
 
-	"mseep/internal/config"
-	"mseep/internal/diff"
+	"github.com/ResistanceIsUseless/mseep/internal/config"
+	"github.com/ResistanceIsUseless/mseep/internal/diff"
 )
 
 // Cline MCP config shape

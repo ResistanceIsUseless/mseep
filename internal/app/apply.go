@@ -7,17 +7,19 @@ import (
 	"os"
 	"strings"
 
-	"mseep/internal/adapters/claude"
-	"mseep/internal/adapters/claudecode"
-	"mseep/internal/adapters/cline"
-	"mseep/internal/adapters/crush"
-	"mseep/internal/adapters/cursor"
-	"mseep/internal/adapters/opencode"
-	"mseep/internal/adapters/vscode"
-	"mseep/internal/adapters/warp"
-	"mseep/internal/config"
-	"mseep/internal/diff"
-	"mseep/internal/style"
+	"github.com/ResistanceIsUseless/mseep/internal/adapters/claude"
+	"github.com/ResistanceIsUseless/mseep/internal/adapters/claudecode"
+	"github.com/ResistanceIsUseless/mseep/internal/adapters/cline"
+	"github.com/ResistanceIsUseless/mseep/internal/adapters/crush"
+	"github.com/ResistanceIsUseless/mseep/internal/adapters/cursor"
+	"github.com/ResistanceIsUseless/mseep/internal/adapters/goose"
+	"github.com/ResistanceIsUseless/mseep/internal/adapters/lmstudio"
+	"github.com/ResistanceIsUseless/mseep/internal/adapters/opencode"
+	"github.com/ResistanceIsUseless/mseep/internal/adapters/vscode"
+	"github.com/ResistanceIsUseless/mseep/internal/adapters/warp"
+	"github.com/ResistanceIsUseless/mseep/internal/config"
+	"github.com/ResistanceIsUseless/mseep/internal/diff"
+	"github.com/ResistanceIsUseless/mseep/internal/style"
 )
 
 // Apply applies the canonical configuration to the specified client.
@@ -49,6 +51,8 @@ func (a *App) Apply(client, profile string, autoApprove bool) error {
 			"warp":        warp.Adapter{},
 			"crush":       crush.Adapter{},
 			"opencode":    opencode.Adapter{},
+			"lmstudio":    lmstudio.Adapter{},
+			"goose":       goose.Adapter{},
 		}
 		
 		for name, adapter := range adapters {
@@ -104,6 +108,10 @@ func (a *App) Apply(client, profile string, autoApprove bool) error {
 			applyErr = a.applyToCrush(autoApprove)
 		case "opencode":
 			applyErr = a.applyToOpenCode(autoApprove)
+		case "lmstudio":
+			applyErr = a.applyToLMStudio(autoApprove)
+		case "goose":
+			applyErr = a.applyToGoose(autoApprove)
 		default:
 			applyErr = fmt.Errorf("unknown client: %s", c)
 		}
@@ -476,6 +484,14 @@ func (a *App) applyToCrush(autoApprove bool) error {
 
 func (a *App) applyToOpenCode(autoApprove bool) error {
 	return a.applyToGenericClient(opencode.Adapter{}, "OpenCode", autoApprove)
+}
+
+func (a *App) applyToLMStudio(autoApprove bool) error {
+	return a.applyToGenericClient(lmstudio.Adapter{}, "LM Studio", autoApprove)
+}
+
+func (a *App) applyToGoose(autoApprove bool) error {
+	return a.applyToGenericClient(goose.Adapter{}, "Goose", autoApprove)
 }
 
 func detectClient(adapter interface{ Detect() (bool, error) }) bool {

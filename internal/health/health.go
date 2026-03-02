@@ -9,7 +9,7 @@ import (
 	"strings"
 	"time"
 
-	"mseep/internal/config"
+	"github.com/ResistanceIsUseless/mseep/internal/config"
 )
 
 // CheckResult represents the result of a health check

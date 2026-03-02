@@ -14,6 +14,8 @@ A fast CLI/TUI for managing MCP (Model Context Protocol) servers across all your
 | Warp | `~/.warp/mcp_config.json` |
 | Crush | `~/.local/share/crush/crush.json` |
 | OpenCode | `~/.config/opencode/opencode.json` |
+| LM Studio | `~/.cache/lm-studio/mcp-config.json` |
+| Goose | `~/.config/goose/mcp-config.json` |
 
 All paths are platform-aware (macOS, Linux, Windows).
 
@@ -44,6 +46,16 @@ mseep mode get           # show current mode and settings
 ```
 
 ## Install
+
+### Using go install (recommended)
+
+```bash
+go install github.com/ResistanceIsUseless/mseep/cmd/mseep@latest
+```
+
+This installs the `mseep` binary to your `$GOPATH/bin` directory (typically `~/go/bin`).
+
+### From source
 
 ```bash
 git clone https://github.com/ResistanceIsUseless/mseep

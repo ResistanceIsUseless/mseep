@@ -17,7 +17,7 @@ import (
 	"syscall"
 
 	"github.com/spf13/cobra"
-	"mseep/internal/proxy"
+	"github.com/ResistanceIsUseless/mseep/internal/proxy"
 )
 
 var proxyClientFlag string

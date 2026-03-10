@@ -1,10 +1,13 @@
 package tui
 
 import (
+	"encoding/json"
 	"fmt"
+	"os"
 	"strings"
 
 	"github.com/charmbracelet/bubbles/key"
+	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 
@@ -18,6 +21,15 @@ import (
 	"github.com/ResistanceIsUseless/mseep/internal/config"
 )
 
+type Tab int
+
+const (
+	MatrixTab Tab = iota
+	ServersTab
+	EditorTab
+	NumTabs
+)
+
 // MatrixModel is a simpler TUI focused on the server×client matrix
 type MatrixModel struct {
 	app           *app.App
@@ -28,6 +40,11 @@ type MatrixModel struct {
 	message       string
 	loading       bool
 	pendingApply  bool
+	currentTab    Tab
+	editor        textinput.Model
+	editorContent string
+	editorPath    string
+	editorDirty   bool
 }
 
 type clientInfo struct {
@@ -47,6 +64,8 @@ type matrixKeyMap struct {
 	ToggleCol             key.Binding
 	Apply                 key.Binding
 	Refresh               key.Binding
+	Tab1, Tab2, Tab3      key.Binding
+	Save                  key.Binding
 	Quit                  key.Binding
 	Help                  key.Binding
 }
@@ -63,6 +82,10 @@ var matrixKeys = matrixKeyMap{
 	ToggleCol:    key.NewBinding(key.WithKeys("C"), key.WithHelp("C", "toggle column (all servers)")),
 	Apply:        key.NewBinding(key.WithKeys("a"), key.WithHelp("a", "apply")),
 	Refresh:      key.NewBinding(key.WithKeys("r"), key.WithHelp("r", "refresh")),
+	Tab1:         key.NewBinding(key.WithKeys("1"), key.WithHelp("1", "matrix tab")),
+	Tab2:         key.NewBinding(key.WithKeys("2"), key.WithHelp("2", "servers tab")),
+	Tab3:         key.NewBinding(key.WithKeys("3"), key.WithHelp("3", "editor tab")),
+	Save:         key.NewBinding(key.WithKeys("ctrl+s"), key.WithHelp("^s", "save")),
 	Quit:         key.NewBinding(key.WithKeys("q", "ctrl+c"), key.WithHelp("q", "quit")),
 	Help:         key.NewBinding(key.WithKeys("?"), key.WithHelp("?", "help")),
 }
@@ -129,13 +152,37 @@ func NewMatrix() (*MatrixModel, error) {
 		return nil, err
 	}
 
+	te := textinput.New()
+	te.CharLimit = 0
+
 	m := &MatrixModel{
-		app:       a,
-		cursorRow: 0,
-		cursorCol: 0,
+		app:        a,
+		cursorRow:  0,
+		cursorCol:  0,
+		currentTab: MatrixTab,
+		editor:     te,
 	}
 	m.detectClients()
+	m.loadCanonicalForEditor()
 	return m, nil
+}
+
+func (m *MatrixModel) loadCanonicalForEditor() {
+	path, err := config.DefaultPath()
+	if err != nil {
+		m.editorPath = ""
+		m.editorContent = ""
+		return
+	}
+	m.editorPath = path
+	content, err := os.ReadFile(path)
+	if err != nil {
+		m.editorContent = ""
+	} else {
+		m.editorContent = string(content)
+	}
+	m.editor.SetValue(m.editorContent)
+	m.editorDirty = false
 }
 
 func (m *MatrixModel) detectClients() {
@@ -219,37 +266,47 @@ func (m *MatrixModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, tea.Quit
 
 		case key.Matches(msg, matrixKeys.Up):
-			if m.cursorRow > 0 {
-				m.cursorRow--
+			if m.currentTab == MatrixTab || m.currentTab == ServersTab {
+				if m.cursorRow > 0 {
+					m.cursorRow--
+				}
 			}
 			m.message = ""
 
 		case key.Matches(msg, matrixKeys.Down):
-			if m.cursorRow < len(m.app.Canon.Servers)-1 {
-				m.cursorRow++
+			if m.currentTab == MatrixTab || m.currentTab == ServersTab {
+				if m.cursorRow < len(m.app.Canon.Servers)-1 {
+					m.cursorRow++
+				}
 			}
 			m.message = ""
 
 		case key.Matches(msg, matrixKeys.Left):
-			if m.cursorCol > 0 {
+			if m.currentTab == MatrixTab && m.cursorCol > 0 {
 				m.cursorCol--
 			}
 			m.message = ""
 
 		case key.Matches(msg, matrixKeys.Right):
-			maxCol := m.countEnabledClients()
-			if m.cursorCol < maxCol {
-				m.cursorCol++
+			if m.currentTab == MatrixTab {
+				maxCol := m.countEnabledClients()
+				if m.cursorCol < maxCol {
+					m.cursorCol++
+				}
 			}
 			m.message = ""
 
 		case key.Matches(msg, matrixKeys.Toggle):
-			m.toggleCurrent()
-			m.pendingApply = true
+			if m.currentTab == MatrixTab || m.currentTab == ServersTab {
+				m.toggleCurrent()
+				m.pendingApply = true
+			}
 
 		case key.Matches(msg, matrixKeys.ToggleGlobal):
-			m.toggleGlobal()
-			m.pendingApply = true
+			if m.currentTab == MatrixTab {
+				m.toggleGlobal()
+				m.pendingApply = true
+			}
 
 		case key.Matches(msg, matrixKeys.ToggleClient):
 			m.toggleClientEnabled()
@@ -269,7 +326,38 @@ func (m *MatrixModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case key.Matches(msg, matrixKeys.Refresh):
 			m.loading = true
 			return m, m.refresh()
+
+		case key.Matches(msg, matrixKeys.Tab1):
+			m.currentTab = MatrixTab
+			m.message = ""
+
+		case key.Matches(msg, matrixKeys.Tab2):
+			m.currentTab = ServersTab
+			m.cursorRow = 0
+			m.message = ""
+
+		case key.Matches(msg, matrixKeys.Tab3):
+			m.currentTab = EditorTab
+			m.cursorRow = 0
+			m.loadCanonicalForEditor()
+			m.message = ""
+
+		case key.Matches(msg, matrixKeys.Save):
+			if m.currentTab == EditorTab {
+				m.saveEditor()
+			}
 		}
+	}
+
+	// Pass to editor if in editor tab
+	if m.currentTab == EditorTab {
+		// Check if editor content changed
+		if m.editor.Value() != m.editorContent {
+			m.editorDirty = true
+		}
+		var cmd tea.Cmd
+		m.editor, cmd = m.editor.Update(msg)
+		return m, cmd
 	}
 
 	return m, nil
@@ -433,6 +521,43 @@ func (m *MatrixModel) toggleAllServersGlobal() {
 	_ = config.Save("", m.app.Canon)
 }
 
+func (m *MatrixModel) saveEditor() {
+	if m.editorPath == "" {
+		m.message = "Error: no file path"
+		return
+	}
+
+	content := m.editor.Value()
+	if content == m.editorContent {
+		m.message = "No changes to save"
+		return
+	}
+
+	// Validate JSON before saving
+	var testCanonical config.Canonical
+	if err := json.Unmarshal([]byte(content), &testCanonical); err != nil {
+		m.message = fmt.Sprintf("Invalid JSON: %v", err)
+		return
+	}
+
+	err := os.WriteFile(m.editorPath, []byte(content), 0o644)
+	if err != nil {
+		m.message = fmt.Sprintf("Error saving: %v", err)
+		return
+	}
+
+	m.editorContent = content
+	m.editorDirty = false
+	m.message = "Saved to " + m.editorPath
+
+	// Reload app
+	newApp, err := app.LoadApp()
+	if err == nil {
+		m.app = newApp
+		m.detectClients()
+	}
+}
+
 func (m *MatrixModel) enabledStr(enabled bool) string {
 	if enabled {
 		return "enabled"
@@ -450,6 +575,35 @@ func (m *MatrixModel) apply() tea.Cmd {
 }
 
 func (m *MatrixModel) View() string {
+	// Render based on current tab
+	switch m.currentTab {
+	case MatrixTab:
+		return m.renderMatrixView()
+	case ServersTab:
+		return m.renderServersView()
+	case EditorTab:
+		return m.renderEditorView()
+	}
+	return ""
+}
+
+func (m *MatrixModel) renderTabBar() string {
+	tabs := []string{"[1] Matrix", "[2] Servers", "[3] Editor"}
+
+	var result []string
+	for i, tab := range tabs {
+		if Tab(i) == m.currentTab {
+			result = append(result, mxSelectedStyle.Padding(0, 1).Render(tab))
+		} else {
+			result = append(result, mxMutedTabStyle.Padding(0, 1).Render(tab))
+		}
+	}
+	return lipgloss.JoinHorizontal(lipgloss.Left, result...)
+}
+
+var mxMutedTabStyle = lipgloss.NewStyle().Foreground(mxMuted)
+
+func (m *MatrixModel) renderMatrixView() string {
 	var b strings.Builder
 
 	// Title bar
@@ -457,21 +611,11 @@ func (m *MatrixModel) View() string {
 	mode := m.app.Canon.EffectiveMode()
 	modeBadge := lipgloss.NewStyle().Foreground(mxMuted).Render(fmt.Sprintf("mode: %s", mode))
 
-	// Profile hints
-	profileHints := ""
-	i := 1
-	for name := range m.app.Canon.Profiles {
-		if i <= 3 {
-			profileHints += fmt.Sprintf(" %d:%s", i, name)
-			i++
-		}
-	}
-	if profileHints != "" {
-		profileHints = lipgloss.NewStyle().Foreground(mxMuted).Render(profileHints)
-	}
+	titleLine := lipgloss.JoinHorizontal(lipgloss.Center, title, "  ", modeBadge)
+	b.WriteString(titleLine + "\n")
 
-	titleLine := lipgloss.JoinHorizontal(lipgloss.Center, title, "  ", modeBadge, profileHints)
-	b.WriteString(titleLine + "\n\n")
+	// Tab bar
+	b.WriteString(m.renderTabBar() + "\n\n")
 
 	// Build the matrix
 	enabledClients := m.getEnabledClients()
@@ -610,3 +754,140 @@ func (m *MatrixModel) renderStatusBar() string {
 }
 
 var mxWarningStyle = lipgloss.NewStyle().Foreground(mxWarning).Bold(true)
+
+func (m *MatrixModel) renderServersView() string {
+	var b strings.Builder
+
+	title := mxTitleStyle.Render("mseep")
+	mode := m.app.Canon.EffectiveMode()
+	modeBadge := lipgloss.NewStyle().Foreground(mxMuted).Render(fmt.Sprintf("mode: %s", mode))
+	titleLine := lipgloss.JoinHorizontal(lipgloss.Center, title, "  ", modeBadge)
+	b.WriteString(titleLine + "\n")
+	b.WriteString(m.renderTabBar() + "\n\n")
+
+	// Header
+	header := mxHeaderStyle.Width(25).Render("Name")
+	header += mxHeaderStyle.Width(50).Render("Description")
+	header += mxHeaderStyle.Width(10).Align(lipgloss.Center).Render("Enabled")
+	b.WriteString(header + "\n")
+
+	sep := strings.Repeat("─", 85)
+	b.WriteString(lipgloss.NewStyle().Foreground(mxMuted).Render(sep) + "\n")
+
+	// Server rows
+	for i, server := range m.app.Canon.Servers {
+		isSelected := i == m.cursorRow
+
+		name := server.Name
+		if len(name) > 23 {
+			name = name[:20] + "..."
+		}
+		desc := server.Description
+		if len(desc) > 48 {
+			desc = desc[:45] + "..."
+		}
+
+		nameStyle := mxCellStyle.Width(25)
+		descStyle := mxCellStyle.Width(50)
+		enabledStyle := mxCellStyle.Width(10).Align(lipgloss.Center)
+
+		if isSelected {
+			nameStyle = mxSelectedStyle.Width(25)
+			descStyle = mxSelectedStyle.Width(50)
+			enabledStyle = mxSelectedStyle.Width(10).Align(lipgloss.Center)
+		}
+
+		row := nameStyle.Render(name)
+		row += descStyle.Render(desc)
+
+		if server.Enabled {
+			if isSelected {
+				row += mxEnabledStyle.Copy().Background(mxBgLight).Width(10).Align(lipgloss.Center).Render("●")
+			} else {
+				row += mxEnabledStyle.Width(10).Align(lipgloss.Center).Render("●")
+			}
+		} else {
+			row += enabledStyle.Render("○")
+		}
+
+		b.WriteString(row + "\n")
+	}
+
+	// Message
+	if m.message != "" {
+		b.WriteString("\n" + mxMessageStyle.Render(m.message) + "\n")
+	}
+
+	// Status bar
+	b.WriteString("\n")
+	enabled := 0
+	for _, s := range m.app.Canon.Servers {
+		if s.Enabled {
+			enabled++
+		}
+	}
+	parts := []string{
+		fmt.Sprintf("%d/%d enabled", enabled, len(m.app.Canon.Servers)),
+		"↑↓:navigate", "space:toggle", "q:quit",
+	}
+	b.WriteString(mxStatusStyle.Width(m.width).Render(strings.Join(parts, "  ·  ")))
+
+	return b.String()
+}
+
+func (m *MatrixModel) renderEditorView() string {
+	var b strings.Builder
+
+	title := mxTitleStyle.Render("mseep")
+	pathInfo := m.editorPath
+	if pathInfo == "" {
+		pathInfo = "no file"
+	}
+	pathBadge := lipgloss.NewStyle().Foreground(mxMuted).Render(pathInfo)
+
+	if m.editorDirty {
+		pathBadge += lipgloss.NewStyle().Foreground(mxWarning).Render(" (modified)")
+	}
+
+	titleLine := lipgloss.JoinHorizontal(lipgloss.Center, title, "  ", pathBadge)
+	b.WriteString(titleLine + "\n")
+	b.WriteString(m.renderTabBar() + "\n\n")
+
+	// Editor content
+	editorView := m.editor.View()
+	lines := strings.Split(editorView, "\n")
+
+	// Calculate available width for editor
+	editorWidth := m.width - 4
+	if editorWidth < 40 {
+		editorWidth = 40
+	}
+
+	// Render each line with a line number gutter
+	for i, line := range lines {
+		lineNum := fmt.Sprintf("%3d ", i+1)
+		lineNumStyle := lipgloss.NewStyle().Foreground(mxMuted)
+		b.WriteString(lineNumStyle.Render(lineNum))
+		b.WriteString(line)
+		b.WriteString("\n")
+	}
+
+	// Message
+	if m.message != "" {
+		b.WriteString("\n" + mxMessageStyle.Render(m.message) + "\n")
+	}
+
+	// Status bar
+	parts := []string{
+		"Editor",
+		"↑↓: navigate",
+		"^s: save",
+	}
+	if m.editorDirty {
+		parts = append(parts, mxWarningStyle.Render("unsaved"))
+	}
+	parts = append(parts, "q:quit")
+	b.WriteString("\n" + mxStatusStyle.Width(m.width).Render(strings.Join(parts, "  ·  ")))
+
+	return b.String()
+}

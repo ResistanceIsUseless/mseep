@@ -4,18 +4,18 @@ import (
 	"fmt"
 
 	tea "github.com/charmbracelet/bubbletea"
-	
+
 	"github.com/ResistanceIsUseless/mseep/internal/app"
 	"github.com/ResistanceIsUseless/mseep/internal/style"
 	"github.com/ResistanceIsUseless/mseep/internal/tui"
 )
 
 func runTUI() error {
-	model, err := tui.New()
+	model, err := tui.NewMatrix()
 	if err != nil {
 		return err
 	}
-	
+
 	p := tea.NewProgram(model, tea.WithAltScreen())
 	_, err = p.Run()
 	return err
@@ -23,10 +23,16 @@ func runTUI() error {
 
 func cmdEnableDisableToggle(mode, q, client string, yes bool) error {
 	a, err := app.LoadApp()
-	if err != nil { return err }
+	if err != nil {
+		return err
+	}
 	d, err := a.Toggle(mode, q, client, yes)
-	if err != nil { return err }
-	if d != "" { fmt.Println(d) }
+	if err != nil {
+		return err
+	}
+	if d != "" {
+		fmt.Println(d)
+	}
 	return nil
 }
 

@@ -62,8 +62,6 @@ func (a *App) ApplySilent(client, profile string) error {
 		"goose":       goose.Adapter{},
 	}
 
-	// In wrapper mode, use a synthetic canonical
-	canonToApply := a.Canon
 	isWrapper := a.Canon.EffectiveMode() == "wrapper"
 
 	applied := 0
@@ -74,14 +72,22 @@ func (a *App) ApplySilent(client, profile string) error {
 			continue
 		}
 
+		// Check if client is enabled in config
+		if !a.Canon.IsClientEnabled(name) {
+			continue
+		}
+
 		detected, _ := adapter.Detect()
 		if !detected {
 			continue
 		}
 
-		// For wrapper mode, create client-specific proxy canonical
+		// Create client-specific canonical with per-client overrides
+		var canonToApply *config.Canonical
 		if isWrapper {
 			canonToApply = wrapperCanonical(name, "")
+		} else {
+			canonToApply = a.createClientCanonical(name)
 		}
 
 		_, err := adapter.Apply(canonToApply)
@@ -97,6 +103,25 @@ func (a *App) ApplySilent(client, profile string) error {
 	}
 
 	return nil
+}
+
+// createClientCanonical creates a canonical config with per-client overrides applied
+func (a *App) createClientCanonical(clientName string) *config.Canonical {
+	clientCanon := &config.Canonical{
+		Servers:  make([]config.Server, 0, len(a.Canon.Servers)),
+		Profiles: a.Canon.Profiles,
+		Settings: a.Canon.Settings,
+		Meta:     a.Canon.Meta,
+	}
+
+	for _, server := range a.Canon.Servers {
+		// Copy the server and set Enabled based on per-client state
+		serverCopy := server
+		serverCopy.Enabled = a.Canon.IsServerEnabledForClient(server.Name, clientName)
+		clientCanon.Servers = append(clientCanon.Servers, serverCopy)
+	}
+
+	return clientCanon
 }
 
 func (a *App) applyProfileSilent(profileName string) error {

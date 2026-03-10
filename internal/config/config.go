@@ -11,9 +11,16 @@ import (
 
 type Canonical struct {
 	Servers  []Server            `json:"servers"`
-	Profiles map[string][]string `json:"profiles"` // profile -> enabled server names
+	Clients  map[string]Client   `json:"clients,omitempty"` // client name -> settings
+	Profiles map[string][]string `json:"profiles"`          // profile -> enabled server names
 	Settings Settings            `json:"settings"`
 	Meta     Meta                `json:"meta"`
+}
+
+// Client represents per-client configuration
+type Client struct {
+	Enabled   bool            `json:"enabled"`             // whether to sync to this client
+	Overrides map[string]bool `json:"overrides,omitempty"` // server name -> enabled (overrides global)
 }
 
 // Settings controls global mseep behaviour.
@@ -194,4 +201,92 @@ func (c *Canonical) EnabledSet() map[string]bool {
 		}
 	}
 	return m
+}
+
+// IsClientEnabled returns whether a client is enabled for syncing
+func (c *Canonical) IsClientEnabled(clientName string) bool {
+	if c.Clients == nil {
+		return true // default to enabled if not configured
+	}
+	client, exists := c.Clients[clientName]
+	if !exists {
+		return true // default to enabled if not configured
+	}
+	return client.Enabled
+}
+
+// IsServerEnabledForClient returns whether a server should be enabled for a specific client
+func (c *Canonical) IsServerEnabledForClient(serverName, clientName string) bool {
+	// First check if server exists and is globally enabled
+	server := c.FindByName(serverName)
+	if server == nil {
+		return false
+	}
+
+	globalEnabled := server.Enabled
+
+	// Check for per-client override
+	if c.Clients != nil {
+		if client, exists := c.Clients[clientName]; exists {
+			if override, hasOverride := client.Overrides[serverName]; hasOverride {
+				return override
+			}
+		}
+	}
+
+	return globalEnabled
+}
+
+// SetServerOverride sets a per-client override for a server
+func (c *Canonical) SetServerOverride(serverName, clientName string, enabled bool) {
+	if c.Clients == nil {
+		c.Clients = make(map[string]Client)
+	}
+
+	client := c.Clients[clientName]
+	if client.Overrides == nil {
+		client.Overrides = make(map[string]bool)
+	}
+
+	// Check if this matches global state - if so, remove the override
+	server := c.FindByName(serverName)
+	if server != nil && server.Enabled == enabled {
+		delete(client.Overrides, serverName)
+	} else {
+		client.Overrides[serverName] = enabled
+	}
+
+	// Only set Enabled if it wasn't set before
+	if _, exists := c.Clients[clientName]; !exists {
+		client.Enabled = true
+	}
+
+	c.Clients[clientName] = client
+}
+
+// SetClientEnabled enables or disables syncing to a client
+func (c *Canonical) SetClientEnabled(clientName string, enabled bool) {
+	if c.Clients == nil {
+		c.Clients = make(map[string]Client)
+	}
+
+	client := c.Clients[clientName]
+	client.Enabled = enabled
+	c.Clients[clientName] = client
+}
+
+// GetEnabledServersForClient returns the list of servers that should be enabled for a client
+func (c *Canonical) GetEnabledServersForClient(clientName string) []Server {
+	var result []Server
+	for _, server := range c.Servers {
+		if c.IsServerEnabledForClient(server.Name, clientName) {
+			result = append(result, server)
+		}
+	}
+	return result
+}
+
+// AllClientNames returns the list of known client names
+func AllClientNames() []string {
+	return []string{"claude", "claude-code", "cursor", "vscode", "cline", "warp", "opencode"}
 }

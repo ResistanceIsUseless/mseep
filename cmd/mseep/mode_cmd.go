@@ -3,9 +3,6 @@ package main
 // mode_cmd.go — "mseep mode" subcommands for reading and writing the global
 // delivery mode (basic | wrapper).
 //
-// Uses Cobra's init() registration pattern so this file is self-contained and
-// does not require changes to main.go.
-//
 // Usage:
 //   mseep mode get              – print current mode
 //   mseep mode set basic        – switch to basic (direct config entries)
@@ -17,16 +14,16 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/spf13/cobra"
 	"github.com/ResistanceIsUseless/mseep/internal/config"
 	"github.com/ResistanceIsUseless/mseep/internal/style"
+	"github.com/spf13/cobra"
 )
 
-// modeCmd is the parent "mode" command group.
-var modeCmd = &cobra.Command{
-	Use:   "mode",
-	Short: "Get or set the MCP delivery mode (basic|wrapper)",
-	Long: `Controls how mseep delivers enabled MCP servers to each client.
+func cmdMode() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "mode",
+		Short: "Get or set the MCP delivery mode (basic|wrapper)",
+		Long: `Controls how mseep delivers enabled MCP servers to each client.
 
   basic   – write individual server entries directly into each client's config
             file. Simple, no runtime dependency on mseep. (default)
@@ -34,41 +31,44 @@ var modeCmd = &cobra.Command{
   wrapper – write a single "mseep proxy" entry into each client's config.
             mseep itself multiplexes all enabled servers at runtime, allowing
             hot-reload and unified tool namespacing without restarting clients.`,
+	}
+
+	cmd.AddCommand(cmdModeGet(), cmdModeSet())
+	return cmd
 }
 
-var modeGetCmd = &cobra.Command{
-	Use:   "get",
-	Short: "Print the current delivery mode",
-	RunE:  runModeGet,
+func cmdModeGet() *cobra.Command {
+	return &cobra.Command{
+		Use:   "get",
+		Short: "Print the current delivery mode",
+		RunE:  runModeGet,
+	}
 }
 
-var modeSetCmd = &cobra.Command{
-	Use:   "set <basic|wrapper>",
-	Short: "Set the delivery mode",
-	Args:  cobra.ExactArgs(1),
-	RunE:  runModeSet,
-}
+func cmdModeSet() *cobra.Command {
+	var (
+		pollInterval int
+		namespace    bool
+		separator    string
+	)
 
-// Flags for "mode set wrapper"
-var (
-	modePollInterval  int
-	modeNamespace     bool
-	modeSeparator     string
-)
+	cmd := &cobra.Command{
+		Use:   "set <basic|wrapper>",
+		Short: "Set the delivery mode",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return runModeSet(args[0], pollInterval, namespace, separator)
+		},
+	}
 
-func init() {
-	// Register the top-level "mode" command onto rootCmd (defined in main.go).
-	rootCmd.AddCommand(modeCmd)
-	modeCmd.AddCommand(modeGetCmd)
-	modeCmd.AddCommand(modeSetCmd)
-
-	// Wrapper-specific flags on "mode set" (only meaningful when arg is "wrapper").
-	modeSetCmd.Flags().IntVar(&modePollInterval, "poll", 5,
+	cmd.Flags().IntVar(&pollInterval, "poll", 5,
 		"Wrapper poll interval in seconds (0 = load once at startup)")
-	modeSetCmd.Flags().BoolVar(&modeNamespace, "namespace", true,
+	cmd.Flags().BoolVar(&namespace, "namespace", true,
 		"Prefix tool names with server name to avoid collisions (wrapper mode)")
-	modeSetCmd.Flags().StringVar(&modeSeparator, "separator", "__",
+	cmd.Flags().StringVar(&separator, "separator", "__",
 		"Separator used for tool name namespacing (wrapper mode)")
+
+	return cmd
 }
 
 func runModeGet(_ *cobra.Command, _ []string) error {
@@ -92,8 +92,7 @@ func runModeGet(_ *cobra.Command, _ []string) error {
 	return nil
 }
 
-func runModeSet(_ *cobra.Command, args []string) error {
-	requested := args[0]
+func runModeSet(requested string, pollInterval int, namespace bool, separator string) error {
 	if requested != "basic" && requested != "wrapper" {
 		return fmt.Errorf("mode must be 'basic' or 'wrapper', got %q", requested)
 	}
@@ -107,9 +106,9 @@ func runModeSet(_ *cobra.Command, args []string) error {
 	canon.Settings.Mode = requested
 
 	if requested == "wrapper" {
-		canon.Settings.Wrapper.PollIntervalSeconds = modePollInterval
-		canon.Settings.Wrapper.NamespaceTools = modeNamespace
-		canon.Settings.Wrapper.NamespaceSeparator = modeSeparator
+		canon.Settings.Wrapper.PollIntervalSeconds = pollInterval
+		canon.Settings.Wrapper.NamespaceTools = namespace
+		canon.Settings.Wrapper.NamespaceSeparator = separator
 	}
 
 	if err := config.Save("", canon); err != nil {

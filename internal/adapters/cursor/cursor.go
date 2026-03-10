@@ -2,12 +2,14 @@ package cursor
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"time"
 
 	"github.com/ResistanceIsUseless/mseep/internal/config"
 	"github.com/ResistanceIsUseless/mseep/internal/diff"
+	"github.com/ResistanceIsUseless/mseep/internal/jsonc"
 )
 
 // Cursor MCP config shape
@@ -60,7 +62,7 @@ func (a Adapter) Load() (*CursorConfig, error) {
 	if err != nil {
 		return nil, err
 	}
-	
+
 	b, err := os.ReadFile(p)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -68,16 +70,19 @@ func (a Adapter) Load() (*CursorConfig, error) {
 		}
 		return nil, err
 	}
-	
+
+	// Cursor settings.json is JSONC (JSON with Comments and trailing commas)
+	cleanJSON := jsonc.StripComments(string(b))
+
 	// Parse the full settings.json to preserve other settings
 	var rawConfig map[string]interface{}
-	if err := json.Unmarshal(b, &rawConfig); err != nil {
-		return nil, err
+	if err := json.Unmarshal([]byte(cleanJSON), &rawConfig); err != nil {
+		return nil, fmt.Errorf("parsing settings.json: %w", err)
 	}
-	
+
 	var c CursorConfig
 	c.Other = make(map[string]interface{})
-	
+
 	// Extract MCP servers if they exist
 	if mcpServers, exists := rawConfig["mcp.servers"]; exists {
 		if servers, ok := mcpServers.(map[string]interface{}); ok {
@@ -85,11 +90,11 @@ func (a Adapter) Load() (*CursorConfig, error) {
 			for name, serverData := range servers {
 				if serverMap, ok := serverData.(map[string]interface{}); ok {
 					server := CursorServer{}
-					
+
 					if cmd, ok := serverMap["command"].(string); ok {
 						server.Command = cmd
 					}
-					
+
 					if args, ok := serverMap["args"].([]interface{}); ok {
 						server.Args = make([]string, len(args))
 						for i, arg := range args {
@@ -98,7 +103,7 @@ func (a Adapter) Load() (*CursorConfig, error) {
 							}
 						}
 					}
-					
+
 					if env, ok := serverMap["env"].(map[string]interface{}); ok {
 						server.Env = make(map[string]string)
 						for key, val := range env {
@@ -107,24 +112,24 @@ func (a Adapter) Load() (*CursorConfig, error) {
 							}
 						}
 					}
-					
+
 					c.MCPServers[name] = server
 				}
 			}
 		}
 	}
-	
+
 	if c.MCPServers == nil {
 		c.MCPServers = map[string]CursorServer{}
 	}
-	
+
 	// Preserve all other settings
 	for key, value := range rawConfig {
 		if key != "mcp.servers" {
 			c.Other[key] = value
 		}
 	}
-	
+
 	return &c, nil
 }
 
@@ -133,7 +138,7 @@ func (a Adapter) Backup() (string, error) {
 	if err != nil {
 		return "", err
 	}
-	
+
 	b, err := os.ReadFile(p)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -141,7 +146,7 @@ func (a Adapter) Backup() (string, error) {
 		}
 		return "", err
 	}
-	
+
 	bak := p + ".bak." + time.Now().Format("20060102-150405")
 	if err := os.WriteFile(bak, b, 0o644); err != nil {
 		return "", err
@@ -154,12 +159,12 @@ func (a Adapter) Restore(path string) error {
 	if err != nil {
 		return err
 	}
-	
+
 	b, err := os.ReadFile(path)
 	if err != nil {
 		return err
 	}
-	
+
 	return os.WriteFile(p, b, 0o644)
 }
 
@@ -169,7 +174,7 @@ func (a Adapter) Apply(canon *config.Canonical) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	
+
 	// Create the full config map for before/after comparison
 	beforeMap := make(map[string]interface{})
 	for key, value := range cc.Other {
@@ -195,7 +200,7 @@ func (a Adapter) Apply(canon *config.Canonical) (string, error) {
 			newServers[name] = srv
 		}
 	}
-	
+
 	// Add/update enabled ones from canonical
 	for name, s := range enabled {
 		newServers[name] = CursorServer{
@@ -214,22 +219,22 @@ func (a Adapter) Apply(canon *config.Canonical) (string, error) {
 		afterMap["mcp.servers"] = newServers
 	}
 	after, _ := json.MarshalIndent(afterMap, "", "  ")
-	
+
 	diffStr := diff.GenerateColorDiff(string(before), string(after))
 
 	// Write the complete settings.json back
 	if _, err := a.Backup(); err != nil {
 		return diffStr, err
 	}
-	
+
 	p, err := a.Path()
 	if err != nil {
 		return diffStr, err
 	}
-	
+
 	if err := os.WriteFile(p, after, 0o644); err != nil {
 		return diffStr, err
 	}
-	
+
 	return diffStr, nil
 }

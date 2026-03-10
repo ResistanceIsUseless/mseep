@@ -18,7 +18,7 @@ func main() {
 		Long:  "mseep is a fast TUI/CLI to manage MCP servers across clients (Claude, Cursor, etc.).",
 	}
 
-	root.AddCommand(cmdTUI(), cmdEnable(), cmdDisable(), cmdToggle(), cmdStatus(), cmdHealth(), cmdApply(), cmdProfiles())
+	root.AddCommand(cmdTUI(), cmdEnable(), cmdDisable(), cmdToggle(), cmdStatus(), cmdHealth(), cmdApply(), cmdProfiles(), cmdServers(), cmdMode(), cmdProxy(), cmdImport(), cmdSync())
 
 	if err := root.Execute(); err != nil {
 		fmt.Fprintln(os.Stderr, err)
@@ -132,7 +132,7 @@ func cmdApply() *cobra.Command {
 
 func cmdProfiles() *cobra.Command {
 	var jsonOut bool
-	
+
 	cmd := &cobra.Command{
 		Use:   "profiles",
 		Short: "Manage server profiles",

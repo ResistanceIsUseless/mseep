@@ -55,13 +55,29 @@ type Server struct {
 	Enabled   bool              `json:"enabled"`
 	Health    *HealthSpec       `json:"healthCheck,omitempty"`
 	Policy    *PolicySpec       `json:"policy,omitempty"`
+
+	// Setup metadata - helps users configure complex servers
+	Description   string       `json:"description,omitempty"`   // What the server does
+	Repository    string       `json:"repository,omitempty"`    // GitHub/GitLab URL
+	Homepage      string       `json:"homepage,omitempty"`      // Documentation URL
+	Prerequisites []string     `json:"prerequisites,omitempty"` // e.g. ["python3", "pip", "ghidra"]
+	SetupSteps    []string     `json:"setupSteps,omitempty"`    // Human-readable setup instructions
+	Secrets       []SecretSpec `json:"secrets,omitempty"`       // Required env vars with descriptions
+}
+
+// SecretSpec describes a required secret/API key for a server.
+type SecretSpec struct {
+	Name        string `json:"name"`                  // Env var name (e.g. GITHUB_TOKEN)
+	Description string `json:"description,omitempty"` // What this secret is for
+	Required    bool   `json:"required"`              // Whether server fails without it
+	URL         string `json:"url,omitempty"`         // Where to obtain this secret
 }
 
 type HealthSpec struct {
-	Type      string        `json:"type"`        // stdio|http|tcp
-	URL       string        `json:"url,omitempty"`
-	TimeoutMs int           `json:"timeoutMs,omitempty"`
-	Retries   int           `json:"retries,omitempty"`
+	Type      string `json:"type"` // stdio|http|tcp
+	URL       string `json:"url,omitempty"`
+	TimeoutMs int    `json:"timeoutMs,omitempty"`
+	Retries   int    `json:"retries,omitempty"`
 }
 
 type PolicySpec struct {
@@ -73,16 +89,22 @@ type PolicySpec struct {
 
 func DefaultPath() (string, error) {
 	dir, err := os.UserConfigDir()
-	if err != nil { return "", err }
+	if err != nil {
+		return "", err
+	}
 	p := filepath.Join(dir, "mseep", "canonical.json")
 	return p, nil
 }
 
 func EnsureDir() (string, error) {
 	dir, err := os.UserConfigDir()
-	if err != nil { return "", err }
+	if err != nil {
+		return "", err
+	}
 	p := filepath.Join(dir, "mseep")
-	if err := os.MkdirAll(p, 0o755); err != nil { return "", err }
+	if err := os.MkdirAll(p, 0o755); err != nil {
+		return "", err
+	}
 	return p, nil
 }
 
@@ -90,7 +112,9 @@ func Load(path string) (*Canonical, error) {
 	if path == "" {
 		var err error
 		path, err = DefaultPath()
-		if err != nil { return nil, err }
+		if err != nil {
+			return nil, err
+		}
 	}
 	b, err := os.ReadFile(path)
 	if err != nil {
@@ -101,21 +125,31 @@ func Load(path string) (*Canonical, error) {
 		return nil, err
 	}
 	var c Canonical
-	if err := json.Unmarshal(b, &c); err != nil { return nil, err }
+	if err := json.Unmarshal(b, &c); err != nil {
+		return nil, err
+	}
 	return &c, nil
 }
 
 func Save(path string, c *Canonical) error {
-	if c == nil { return fmt.Errorf("nil canonical config") }
+	if c == nil {
+		return fmt.Errorf("nil canonical config")
+	}
 	if path == "" {
 		var err error
 		path, err = DefaultPath()
-		if err != nil { return err }
+		if err != nil {
+			return err
+		}
 	}
-	if _, err := EnsureDir(); err != nil { return err }
+	if _, err := EnsureDir(); err != nil {
+		return err
+	}
 	c.Meta.UpdatedAt = time.Now()
 	b, err := json.MarshalIndent(c, "", "  ")
-	if err != nil { return err }
+	if err != nil {
+		return err
+	}
 	return os.WriteFile(path, b, 0o644)
 }
 
@@ -145,7 +179,9 @@ func (c *Canonical) EffectiveNamespaceSeparator() string {
 
 func (c *Canonical) FindByName(name string) *Server {
 	for i := range c.Servers {
-		if c.Servers[i].Name == name { return &c.Servers[i] }
+		if c.Servers[i].Name == name {
+			return &c.Servers[i]
+		}
 	}
 	return nil
 }
@@ -153,7 +189,9 @@ func (c *Canonical) FindByName(name string) *Server {
 func (c *Canonical) EnabledSet() map[string]bool {
 	m := map[string]bool{}
 	for _, s := range c.Servers {
-		if s.Enabled { m[s.Name] = true }
+		if s.Enabled {
+			m[s.Name] = true
+		}
 	}
 	return m
 }

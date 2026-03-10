@@ -1,5 +1,8 @@
-# Binary
-mseep
+# Binary (only in root)
+/mseep
+
+# Local tmp directory
+/tmp/
 
 # Build artifacts
 *.exe

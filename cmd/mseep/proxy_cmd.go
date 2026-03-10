@@ -6,8 +6,6 @@ package main
 //   mseep proxy --client <client-name>
 // as its single MCP server entry.  mseep then multiplexes all enabled
 // canonical servers through this process.
-//
-// Uses Cobra's init() pattern so this file is self-contained.
 
 import (
 	"context"
@@ -16,16 +14,17 @@ import (
 	"os/signal"
 	"syscall"
 
-	"github.com/spf13/cobra"
 	"github.com/ResistanceIsUseless/mseep/internal/proxy"
+	"github.com/spf13/cobra"
 )
 
-var proxyClientFlag string
+func cmdProxy() *cobra.Command {
+	var clientFlag string
 
-var proxyCmd = &cobra.Command{
-	Use:   "proxy",
-	Short: "Run the MCP multiplexer proxy (used by wrapper mode)",
-	Long: `Start the mseep MCP proxy for a specific client.
+	cmd := &cobra.Command{
+		Use:   "proxy",
+		Short: "Run the MCP multiplexer proxy (used by wrapper mode)",
+		Long: `Start the mseep MCP proxy for a specific client.
 
 In wrapper mode, each AI client is configured to run:
 
@@ -39,18 +38,18 @@ Each client connection is fully isolated — separate proxy processes with
 their own child process trees. No session state is shared between clients.
 
 The proxy hot-reloads when canonical.json changes (configurable poll interval).`,
-	RunE: runProxy,
-}
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return runProxy(clientFlag)
+		},
+	}
 
-func init() {
-	rootCmd.AddCommand(proxyCmd)
-	proxyCmd.Flags().StringVar(&proxyClientFlag, "client", "",
+	cmd.Flags().StringVar(&clientFlag, "client", "",
 		"Client name this proxy is serving (e.g. claude-code, cursor, opencode)")
-	// --client is optional but recommended for logging/debugging.
+
+	return cmd
 }
 
-func runProxy(_ *cobra.Command, _ []string) error {
-	clientName := proxyClientFlag
+func runProxy(clientName string) error {
 	if clientName == "" {
 		clientName = "unknown"
 	}

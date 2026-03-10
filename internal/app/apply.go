@@ -26,11 +26,105 @@ import (
 //
 // Behaviour depends on the configured mode (canon.Settings.Mode):
 //
-//   basic   – write all enabled servers directly into each client config (default)
-//   wrapper – write a single "mseep proxy --client <name>" entry so that mseep
-//             multiplexes servers at runtime; all other mseep-managed entries
-//             are removed from the client config
+//	basic   – write all enabled servers directly into each client config (default)
+//	wrapper – write a single "mseep proxy --client <name>" entry so that mseep
+//	          multiplexes servers at runtime; all other mseep-managed entries
+//	          are removed from the client config
 func (a *App) Apply(client, profile string, autoApprove bool) error {
+	return a.applyInternal(client, profile, autoApprove, false)
+}
+
+// ApplySilent applies without any stdout output - for use by TUI.
+// Returns the number of clients updated and any error.
+func (a *App) ApplySilent(client, profile string) error {
+	// Apply profile if specified
+	if profile != "" {
+		if err := a.applyProfileSilent(profile); err != nil {
+			return fmt.Errorf("failed to apply profile %q: %w", profile, err)
+		}
+	}
+
+	// Determine which clients to apply to
+	adapters := map[string]interface {
+		Name() string
+		Detect() (bool, error)
+		Apply(*config.Canonical) (string, error)
+	}{
+		"claude":      claude.Adapter{},
+		"claude-code": claudecode.Adapter{},
+		"cursor":      cursor.Adapter{},
+		"vscode":      vscode.Adapter{},
+		"cline":       cline.Adapter{},
+		"warp":        warp.Adapter{},
+		"crush":       crush.Adapter{},
+		"opencode":    opencode.Adapter{},
+		"lmstudio":    lmstudio.Adapter{},
+		"goose":       goose.Adapter{},
+	}
+
+	// In wrapper mode, use a synthetic canonical
+	canonToApply := a.Canon
+	isWrapper := a.Canon.EffectiveMode() == "wrapper"
+
+	applied := 0
+	var lastErr error
+
+	for name, adapter := range adapters {
+		if client != "" && client != name {
+			continue
+		}
+
+		detected, _ := adapter.Detect()
+		if !detected {
+			continue
+		}
+
+		// For wrapper mode, create client-specific proxy canonical
+		if isWrapper {
+			canonToApply = wrapperCanonical(name, "")
+		}
+
+		_, err := adapter.Apply(canonToApply)
+		if err != nil {
+			lastErr = fmt.Errorf("%s: %w", name, err)
+		} else {
+			applied++
+		}
+	}
+
+	if applied == 0 && lastErr != nil {
+		return lastErr
+	}
+
+	return nil
+}
+
+func (a *App) applyProfileSilent(profileName string) error {
+	profile, exists := a.Canon.Profiles[profileName]
+	if !exists {
+		return fmt.Errorf("profile %q not found", profileName)
+	}
+
+	// Reset all servers to disabled
+	for i := range a.Canon.Servers {
+		a.Canon.Servers[i].Enabled = false
+	}
+
+	// Enable servers in the profile
+	for _, serverName := range profile {
+		for i := range a.Canon.Servers {
+			if a.Canon.Servers[i].Name == serverName {
+				a.Canon.Servers[i].Enabled = true
+				break
+			}
+		}
+	}
+
+	// Save the updated canonical config
+	return config.Save("", a.Canon)
+}
+
+func (a *App) applyInternal(client, profile string, autoApprove, silent bool) error {
 	// Apply profile if specified
 	if profile != "" {
 		if err := a.applyProfile(profile); err != nil {
@@ -54,7 +148,7 @@ func (a *App) Apply(client, profile string, autoApprove bool) error {
 			"lmstudio":    lmstudio.Adapter{},
 			"goose":       goose.Adapter{},
 		}
-		
+
 		for name, adapter := range adapters {
 			if detectClient(adapter) {
 				clients = append(clients, name)
@@ -190,7 +284,7 @@ func (a *App) applyProfile(profileName string) error {
 
 func (a *App) applyToClaude(autoApprove bool) error {
 	ca := claude.Adapter{}
-	
+
 	// Check if Claude is installed
 	if !detectClient(ca) {
 		return fmt.Errorf("Claude Desktop not detected")
@@ -236,7 +330,7 @@ func (a *App) applyToClaude(autoApprove bool) error {
 	// Generate diff for preview
 	beforeJSON, _ := json.MarshalIndent(currentConfig, "", "  ")
 	afterJSON, _ := json.MarshalIndent(newConfig, "", "  ")
-	
+
 	if string(beforeJSON) == string(afterJSON) {
 		fmt.Print(style.Success("No changes needed - configuration is already in sync") + "\n")
 		return nil
@@ -255,7 +349,7 @@ func (a *App) applyToClaude(autoApprove bool) error {
 		if err != nil {
 			return fmt.Errorf("failed to read response: %w", err)
 		}
-		
+
 		response = strings.ToLower(strings.TrimSpace(response))
 		if response != "y" && response != "yes" {
 			fmt.Print(style.Warning("Changes not applied") + "\n")
@@ -277,7 +371,7 @@ func (a *App) applyToClaude(autoApprove bool) error {
 	if err != nil {
 		return fmt.Errorf("failed to get config path: %w", err)
 	}
-	
+
 	if err := os.WriteFile(configPath, afterJSON, 0o644); err != nil {
 		return fmt.Errorf("failed to write config: %w", err)
 	}
@@ -288,7 +382,7 @@ func (a *App) applyToClaude(autoApprove bool) error {
 
 func (a *App) applytoCursor(autoApprove bool) error {
 	ca := cursor.Adapter{}
-	
+
 	// Check if Cursor is installed
 	if !detectClient(ca) {
 		return fmt.Errorf("Cursor not detected")
@@ -356,7 +450,7 @@ func (a *App) applytoCursor(autoApprove bool) error {
 
 	beforeJSON, _ := json.MarshalIndent(beforeMap, "", "  ")
 	afterJSON, _ := json.MarshalIndent(afterMap, "", "  ")
-	
+
 	if string(beforeJSON) == string(afterJSON) {
 		fmt.Print(style.Success("No changes needed - configuration is already in sync") + "\n")
 		return nil
@@ -375,7 +469,7 @@ func (a *App) applytoCursor(autoApprove bool) error {
 		if err != nil {
 			return fmt.Errorf("failed to read response: %w", err)
 		}
-		
+
 		response = strings.ToLower(strings.TrimSpace(response))
 		if response != "y" && response != "yes" {
 			fmt.Print(style.Warning("Changes not applied") + "\n")
@@ -397,7 +491,7 @@ func (a *App) applytoCursor(autoApprove bool) error {
 	if err != nil {
 		return fmt.Errorf("failed to get config path: %w", err)
 	}
-	
+
 	if err := os.WriteFile(configPath, afterJSON, 0o644); err != nil {
 		return fmt.Errorf("failed to write config: %w", err)
 	}
@@ -426,7 +520,7 @@ func (a *App) applyToGenericClient(adapter interface {
 	Backup() (string, error)
 	Path() (string, error)
 }, clientName string, autoApprove bool) error {
-	
+
 	// Check if client is installed
 	if !detectClient(adapter) {
 		return fmt.Errorf("%s not detected", clientName)
@@ -455,7 +549,7 @@ func (a *App) applyToGenericClient(adapter interface {
 		if err != nil {
 			return fmt.Errorf("failed to read response: %w", err)
 		}
-		
+
 		response = strings.ToLower(strings.TrimSpace(response))
 		if response != "y" && response != "yes" {
 			fmt.Print(style.Warning("Changes not applied") + "\n")
@@ -468,7 +562,7 @@ func (a *App) applyToGenericClient(adapter interface {
 	if err != nil {
 		return fmt.Errorf("failed to get config path: %w", err)
 	}
-	
+
 	fmt.Print(style.Success(fmt.Sprintf("Configuration applied successfully to %s", clientName)) + "\n")
 	fmt.Print(style.Muted("Config: ") + style.Code(configPath) + "\n")
 	return nil

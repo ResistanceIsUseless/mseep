@@ -145,17 +145,17 @@ var keys = keyMap{
 // ---------------------------------------------------------------------------
 
 var (
-	primaryColor  = lipgloss.Color("#00D9FF")
-	accentColor   = lipgloss.Color("#FF79C6")
-	successColor  = lipgloss.Color("#50FA7B")
-	warningColor  = lipgloss.Color("#FFB86C")
-	errorColor    = lipgloss.Color("#FF5555")
-	bgColor       = lipgloss.Color("#282A36")
-	bgLightColor  = lipgloss.Color("#44475A")
-	fgColor       = lipgloss.Color("#F8F8F2")
-	mutedColor    = lipgloss.Color("#6272A4")
-	borderColor   = lipgloss.Color("#6272A4")
-	wrapperColor  = lipgloss.Color("#BD93F9") // purple for wrapper mode
+	primaryColor = lipgloss.Color("#00D9FF")
+	accentColor  = lipgloss.Color("#FF79C6")
+	successColor = lipgloss.Color("#50FA7B")
+	warningColor = lipgloss.Color("#FFB86C")
+	errorColor   = lipgloss.Color("#FF5555")
+	bgColor      = lipgloss.Color("#282A36")
+	bgLightColor = lipgloss.Color("#44475A")
+	fgColor      = lipgloss.Color("#F8F8F2")
+	mutedColor   = lipgloss.Color("#6272A4")
+	borderColor  = lipgloss.Color("#6272A4")
+	wrapperColor = lipgloss.Color("#BD93F9") // purple for wrapper mode
 
 	appTitleStyle = lipgloss.NewStyle().
 			Bold(true).
@@ -284,43 +284,65 @@ var (
 type serverItem struct{ config.Server }
 
 func (i serverItem) Title() string {
-	icon := disabledStyle.Render("○")
-	name := disabledStyle.Render(i.Name)
+	// Toggle switch style like Warp
+	var toggle string
+	var name string
 	if i.Enabled {
-		icon = enabledStyle.Render("●")
+		toggle = enabledStyle.Render("[ON ]")
 		name = enabledStyle.Render(i.Name)
+	} else {
+		toggle = disabledStyle.Render("[OFF]")
+		name = disabledStyle.Render(i.Name)
 	}
+
+	// Transport badge
 	badge := ""
 	if i.Transport != "" {
 		badge = " " + lipgloss.NewStyle().
 			Background(bgLightColor).Foreground(mutedColor).Padding(0, 1).
 			Render(i.Transport)
 	}
-	return fmt.Sprintf("%s %s%s", icon, name, badge)
+
+	return fmt.Sprintf("%s  %s%s", toggle, name, badge)
 }
 
 func (i serverItem) Description() string {
 	var parts []string
+
+	// Show description if available
+	if i.Server.Description != "" {
+		desc := i.Server.Description
+		if len(desc) > 60 {
+			desc = desc[:57] + "..."
+		}
+		parts = append(parts, lipgloss.NewStyle().Foreground(fgColor).Render(desc))
+	}
+
+	// Tags
 	if len(i.Tags) > 0 {
 		parts = append(parts,
 			lipgloss.NewStyle().Foreground(accentColor).
-				Render(fmt.Sprintf("🏷  %s", strings.Join(i.Tags, ", "))))
+				Render(strings.Join(i.Tags, ", ")))
 	}
+
+	// Command (truncated)
 	if i.Command != "" {
 		cmd := i.Command
-		if len(cmd) > 40 {
-			cmd = cmd[:37] + "..."
+		if len(i.Args) > 0 {
+			cmd += " " + strings.Join(i.Args[:min(2, len(i.Args))], " ")
+			if len(i.Args) > 2 {
+				cmd += " ..."
+			}
+		}
+		if len(cmd) > 50 {
+			cmd = cmd[:47] + "..."
 		}
 		parts = append(parts,
-			lipgloss.NewStyle().Foreground(mutedColor).
-				Render(fmt.Sprintf("⌘  %s", cmd)))
-	}
-	if len(i.Aliases) > 0 {
-		parts = append(parts,
 			lipgloss.NewStyle().Foreground(mutedColor).Italic(true).
-				Render(fmt.Sprintf("aka: %s", strings.Join(i.Aliases, ", "))))
+				Render(cmd))
 	}
-	return strings.Join(parts, "  ")
+
+	return strings.Join(parts, "\n")
 }
 
 func (i serverItem) FilterValue() string { return i.Name }
@@ -426,6 +448,7 @@ type Model struct {
 	message            string
 	messageAt          time.Time
 	err                error
+	pendingChanges     int // count of unapplied server toggles
 }
 
 // New creates a new TUI model.
@@ -443,8 +466,8 @@ func New() (*Model, error) {
 	serverDelegate := list.NewDefaultDelegate()
 	serverDelegate.Styles.SelectedTitle = selectedItemStyle
 	serverDelegate.Styles.SelectedDesc = selectedItemStyle.Copy().Foreground(mutedColor)
-	serverDelegate.SetHeight(3)
-	serverDelegate.SetSpacing(1)
+	serverDelegate.SetHeight(4) // Increased for multi-line description
+	serverDelegate.SetSpacing(0)
 	serverList := list.New(items, serverDelegate, 0, 0)
 	serverList.Title = "MCP Servers"
 	serverList.SetShowStatusBar(false)
@@ -531,6 +554,18 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.loading {
 			return m, nil
 		}
+
+		// Handle number keys 1-9 for quick profile switching
+		if m.mode == viewServers && len(msg.String()) == 1 {
+			if num := msg.String()[0]; num >= '1' && num <= '9' {
+				idx := int(num - '1')
+				profileNames := m.getProfileNames()
+				if idx < len(profileNames) {
+					return m, m.applyProfileByName(profileNames[idx])
+				}
+			}
+		}
+
 		switch {
 		case key.Matches(msg, keys.Quit):
 			return m, tea.Quit
@@ -558,6 +593,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		case key.Matches(msg, keys.Enter):
 			switch m.mode {
+			case viewServers:
+				return m, m.toggleSelectedServer() // Enter also toggles
 			case viewProfiles:
 				return m, m.applySelectedProfile()
 			case viewMarketplace:
@@ -592,7 +629,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.err != nil {
 			m.setMessage(fmt.Sprintf("Error: %v", msg.err))
 		} else {
-			m.setMessage("Changes applied successfully")
+			m.pendingChanges = 0
+			m.setMessage("Changes applied to all clients")
 		}
 		// Reload status after apply so the Status tab reflects the new state.
 		return m, tea.Batch(m.refresh(), m.loadStatus())
@@ -853,9 +891,9 @@ func (m *Model) renderStatusView() string {
 	var sb strings.Builder
 
 	// Column widths
-	colName    := 14
-	colDetect  := 10
-	colPath    := 38
+	colName := 14
+	colDetect := 10
+	colPath := 38
 	colEnabled := 12
 
 	// Header row
@@ -867,11 +905,11 @@ func (m *Model) renderStatusView() string {
 		"SYNC",
 	)
 	sb.WriteString(lipgloss.NewStyle().Foreground(mutedColor).Bold(true).Render(headerRow) + "\n")
-	sb.WriteString(lipgloss.NewStyle().Foreground(borderColor).Render("  " + strings.Repeat("─", m.width-8)) + "\n\n")
+	sb.WriteString(lipgloss.NewStyle().Foreground(borderColor).Render("  "+strings.Repeat("─", m.width-8)) + "\n\n")
 
-	inSync    := 0
+	inSync := 0
 	outOfSync := 0
-	detected  := 0
+	detected := 0
 
 	for _, cs := range m.statusReport.Clients {
 		// Detected indicator
@@ -936,7 +974,7 @@ func (m *Model) renderStatusView() string {
 	}
 
 	sb.WriteString("\n")
-	sb.WriteString(lipgloss.NewStyle().Foreground(borderColor).Render("  " + strings.Repeat("─", m.width-8)) + "\n")
+	sb.WriteString(lipgloss.NewStyle().Foreground(borderColor).Render("  "+strings.Repeat("─", m.width-8)) + "\n")
 
 	// Summary
 	summaryParts := []string{
@@ -1157,8 +1195,24 @@ func (m *Model) renderStatusBar() string {
 					enabled++
 				}
 			}
-			status = fmt.Sprintf("📦 %d/%d enabled  ·  t: toggle  ·  m: mode  ·  a: apply  ·  ?: help  ·  q: quit",
-				enabled, len(m.app.Canon.Servers))
+			// Build profile shortcuts hint
+			profileHint := ""
+			profileNames := m.getProfileNames()
+			if len(profileNames) > 0 {
+				hints := make([]string, 0, min(3, len(profileNames)))
+				for i, name := range profileNames[:min(3, len(profileNames))] {
+					hints = append(hints, fmt.Sprintf("%d:%s", i+1, name))
+				}
+				profileHint = "  ·  " + strings.Join(hints, " ")
+			}
+
+			if m.pendingChanges > 0 {
+				status = fmt.Sprintf("📦 %d/%d enabled  ·  %d unsaved  ·  space: toggle  ·  a: apply%s",
+					enabled, len(m.app.Canon.Servers), m.pendingChanges, profileHint)
+			} else {
+				status = fmt.Sprintf("📦 %d/%d enabled  ·  space: toggle  ·  a: apply%s  ·  q: quit",
+					enabled, len(m.app.Canon.Servers), profileHint)
+			}
 		case viewProfiles:
 			status = fmt.Sprintf("📋 %d profiles  ·  ↵: apply profile  ·  ?: help  ·  q: quit",
 				len(m.app.Canon.Profiles))
@@ -1206,12 +1260,13 @@ func (m *Model) toggleSelectedServer() tea.Cmd {
 				m.app.Canon.Servers[i].Enabled = !m.app.Canon.Servers[i].Enabled
 				_ = config.Save("", m.app.Canon)
 				m.updateServerList()
+				m.pendingChanges++
 				enabled := m.app.Canon.Servers[i].Enabled
-				state := "disabled"
+				state := "OFF"
 				if enabled {
-					state = "enabled"
+					state = "ON"
 				}
-				m.setMessage(fmt.Sprintf("%q %s — press 'a' to apply to clients", item.Name, state))
+				m.setMessage(fmt.Sprintf("%s → %s  (%d unsaved · 'a' to apply)", item.Name, state, m.pendingChanges))
 				break
 			}
 		}
@@ -1223,17 +1278,70 @@ func (m *Model) applySelectedProfile() tea.Cmd {
 	if item, ok := m.profileList.SelectedItem().(profileItem); ok {
 		m.loading = true
 		return func() tea.Msg {
-			err := m.app.Apply("", item.name, true)
+			err := m.app.ApplySilent("", item.name)
 			return applyMsg{err: err}
 		}
 	}
 	return nil
 }
 
+// getProfileNames returns sorted profile names for quick-switch keys
+func (m *Model) getProfileNames() []string {
+	names := make([]string, 0, len(m.app.Canon.Profiles))
+	for name := range m.app.Canon.Profiles {
+		names = append(names, name)
+	}
+	// Sort for consistent ordering
+	for i := 0; i < len(names)-1; i++ {
+		for j := i + 1; j < len(names); j++ {
+			if names[i] > names[j] {
+				names[i], names[j] = names[j], names[i]
+			}
+		}
+	}
+	return names
+}
+
+// applyProfileByName applies a profile by name and syncs to clients
+func (m *Model) applyProfileByName(name string) tea.Cmd {
+	m.loading = true
+	m.setMessage(fmt.Sprintf("Applying profile: %s", name))
+	return func() tea.Msg {
+		// Apply the profile (enables only those servers)
+		profile, exists := m.app.Canon.Profiles[name]
+		if !exists {
+			return applyMsg{err: fmt.Errorf("profile %q not found", name)}
+		}
+
+		// Reset all servers to disabled
+		for i := range m.app.Canon.Servers {
+			m.app.Canon.Servers[i].Enabled = false
+		}
+
+		// Enable servers in the profile
+		for _, serverName := range profile {
+			for i := range m.app.Canon.Servers {
+				if m.app.Canon.Servers[i].Name == serverName {
+					m.app.Canon.Servers[i].Enabled = true
+					break
+				}
+			}
+		}
+
+		// Save and apply
+		if err := config.Save("", m.app.Canon); err != nil {
+			return applyMsg{err: err}
+		}
+
+		err := m.app.ApplySilent("", "")
+		return applyMsg{err: err}
+	}
+}
+
 func (m *Model) applyChanges() tea.Cmd {
 	m.loading = true
 	return func() tea.Msg {
-		err := m.app.Apply("", "", true)
+		err := m.app.ApplySilent("", "")
 		return applyMsg{err: err}
 	}
 }

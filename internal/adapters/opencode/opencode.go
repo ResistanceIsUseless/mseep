@@ -24,7 +24,9 @@ import (
 //   - "command" is a []string (first element = binary, rest = args),
 //      NOT separate "command" + "args" fields
 //   - "environment" for env vars (not "env")
-//   - No top-level "enabled" field; presence = enabled
+//   - "enabled": true/false to explicitly enable/disable servers
+
+const schemaURL = "https://opencode.ai/config.json"
 
 // OpenCodeConfig is the top-level opencode.json shape (mcp section only).
 type OpenCodeConfig struct {
@@ -47,6 +49,9 @@ type OpenCodeServer struct {
 
 	// Environment maps env var names to values.
 	Environment map[string]string `json:"environment,omitempty"`
+
+	// Enabled explicitly enables/disables the server.
+	Enabled *bool `json:"enabled,omitempty"`
 }
 
 // Adapter implements the mseep adapter interface for OpenCode.
@@ -227,6 +232,12 @@ func (a Adapter) Apply(canon *config.Canonical) (string, error) {
 	}
 	raw["mcp"] = json.RawMessage(mcpRaw)
 
+	// Ensure $schema is set for validation support.
+	if _, exists := raw["$schema"]; !exists {
+		schemaJSON, _ := json.Marshal(schemaURL)
+		raw["$schema"] = json.RawMessage(schemaJSON)
+	}
+
 	outBytes, err := json.MarshalIndent(raw, "", "  ")
 	if err != nil {
 		return diffStr, err
@@ -254,12 +265,14 @@ func (a Adapter) Apply(canon *config.Canonical) (string, error) {
 // Canonical transport "http"|"sse" → type "remote" with url.
 // Canonical env → environment.
 func canonicalToOpenCode(s config.Server) OpenCodeServer {
+	enabled := true
 	switch s.Transport {
 	case "http", "sse":
 		return OpenCodeServer{
 			Type:        "remote",
 			URL:         s.Command, // HTTP/SSE: canonical stores URL in Command field.
 			Environment: s.Env,
+			Enabled:     &enabled,
 		}
 	default: // stdio
 		// OpenCode uses command []string = [binary, ...args]
@@ -269,6 +282,7 @@ func canonicalToOpenCode(s config.Server) OpenCodeServer {
 			Type:        "local",
 			Command:     cmd,
 			Environment: s.Env,
+			Enabled:     &enabled,
 		}
 	}
 }

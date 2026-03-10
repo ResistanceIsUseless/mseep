@@ -25,6 +25,11 @@ type ServerEntry struct {
 	Version     string            `json:"version,omitempty"`
 	Source      string            `json:"source"` // "mcpservers.org", "github", etc.
 	Installed   bool              `json:"installed,omitempty"`
+
+	// Setup metadata
+	Prerequisites []string            `json:"prerequisites,omitempty"` // e.g. ["python3", "pip"]
+	SetupSteps    []string            `json:"setupSteps,omitempty"`    // Human-readable instructions
+	Secrets       []config.SecretSpec `json:"secrets,omitempty"`       // Required secrets
 }
 
 // Marketplace aggregates MCP servers from multiple sources
@@ -122,15 +127,21 @@ func (m *Marketplace) InstallServer(serverEntry ServerEntry, canonical *config.C
 		}
 	}
 
-	// Create new server entry
+	// Create new server entry with all metadata
 	newServer := config.Server{
-		Name:      serverEntry.Name,
-		Command:   serverEntry.Command,
-		Args:      serverEntry.Args,
-		Env:       serverEntry.Env,
-		Tags:      serverEntry.Tags,
-		Transport: "stdio", // Default to stdio transport
-		Enabled:   false,   // Default to disabled until user enables
+		Name:          serverEntry.Name,
+		Command:       serverEntry.Command,
+		Args:          serverEntry.Args,
+		Env:           serverEntry.Env,
+		Tags:          serverEntry.Tags,
+		Transport:     "stdio", // Default to stdio transport
+		Enabled:       false,   // Default to disabled until user enables
+		Description:   serverEntry.Description,
+		Repository:    serverEntry.Repository,
+		Homepage:      serverEntry.Homepage,
+		Prerequisites: serverEntry.Prerequisites,
+		SetupSteps:    serverEntry.SetupSteps,
+		Secrets:       serverEntry.Secrets,
 	}
 
 	// Add to canonical config
@@ -169,13 +180,13 @@ func (m *Marketplace) mergeCachedServers(canonical *config.Canonical) []ServerEn
 
 func (m *Marketplace) deduplicateServers(servers []ServerEntry) []ServerEntry {
 	seen := make(map[string]ServerEntry)
-	
+
 	for _, server := range servers {
 		key := server.Name
 		if existing, exists := seen[key]; exists {
 			// Prefer entries with more information or from more authoritative sources
-			if len(server.Description) > len(existing.Description) || 
-			   server.Source == "mcpservers.org" {
+			if len(server.Description) > len(existing.Description) ||
+				server.Source == "mcpservers.org" {
 				seen[key] = server
 			}
 		} else {
@@ -215,30 +226,30 @@ func (m *Marketplace) matchesQuery(server ServerEntry, query string) bool {
 
 func (m *Marketplace) calculateRelevanceScore(server ServerEntry, query string) int {
 	score := 0
-	
+
 	// Exact name match gets highest score
 	if strings.ToLower(server.Name) == query {
 		score += 100
 	} else if strings.Contains(strings.ToLower(server.Name), query) {
 		score += 50
 	}
-	
+
 	// Description matches
 	if strings.Contains(strings.ToLower(server.Description), query) {
 		score += 20
 	}
-	
+
 	// Tag matches
 	for _, tag := range server.Tags {
 		if strings.Contains(strings.ToLower(tag), query) {
 			score += 10
 		}
 	}
-	
+
 	// Author matches
 	if strings.Contains(strings.ToLower(server.Author), query) {
 		score += 5
 	}
-	
+
 	return score
 }
